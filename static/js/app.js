@@ -10,6 +10,13 @@ const state = {
 document.addEventListener('DOMContentLoaded', () => {
     renderHistory();
 
+    // Dynamically set bookmarklet URL to current site origin
+    const bookmarkletEl = document.getElementById('bookmarkletLink');
+    if (bookmarkletEl) {
+        const origin = window.location.origin;
+        bookmarkletEl.href = `javascript:(function(){window.open('${origin}/?url='+encodeURIComponent(location.href),'_blank');})();`;
+    }
+
     // Check if ?url= query parameter is passed (e.g. from bookmarklet)
     const urlParams = new URLSearchParams(window.location.search);
     const paramUrl = urlParams.get('url');

@@ -183,7 +183,7 @@
                     <h3>1-Click Browser Bookmarklet</h3>
                     <p>Drag this button to your browser's Bookmarks bar. Whenever you are on an annoying ad-link, simply click the bookmarklet to bypass it instantly!</p>
                     <div class="bookmarklet-dropzone">
-                        <a href="javascript:(function(){window.open('http://127.0.0.1:8000/?url='+encodeURIComponent(location.href),'_blank');})();" class="btn btn-bookmarklet" onclick="return false;">
+                        <a id="bookmarkletLink" href="javascript:(function(){window.open(location.origin+'/?url='+encodeURIComponent(location.href),'_blank');})();" class="btn btn-bookmarklet" onclick="return false;">
                             ⚡ Bypass Link (Drag to Bookmarks)
                         </a>
                     </div>
