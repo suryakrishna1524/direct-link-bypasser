@@ -1,7 +1,8 @@
 import os
+import sys
 import asyncio
 from typing import List
-from fastapi import FastAPI, Query, HTTPException, Request
+from fastapi import FastAPI, Query, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -13,14 +14,31 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Base directories
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
-INDEX_FILE = os.path.join(TEMPLATES_DIR, "index.html")
 
-# Mount static files
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+def find_file(rel_path: str) -> str | None:
+    candidates = [
+        os.path.join(BASE_DIR, rel_path),
+        os.path.join(os.path.dirname(BASE_DIR), rel_path),
+        os.path.join(os.getcwd(), rel_path),
+        rel_path
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
+def read_file_content(rel_path: str) -> str:
+    path = find_file(rel_path)
+    if path and os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    return ""
+
+# Mount static if available
+static_path = find_file("static")
+if static_path:
+    app.mount("/static", StaticFiles(directory=static_path), name="static")
 
 class BypassRequest(BaseModel):
     url: str
@@ -28,9 +46,24 @@ class BypassRequest(BaseModel):
 class BatchBypassRequest(BaseModel):
     urls: List[str]
 
-@app.get("/", response_class=FileResponse)
+@app.get("/", response_class=HTMLResponse)
+@app.get("/index.html", response_class=HTMLResponse)
 async def index_page():
-    return FileResponse(INDEX_FILE)
+    content = read_file_content("templates/index.html")
+    if not content:
+        content = "<h1>BypassDirect Web Application</h1>"
+    return HTMLResponse(content=content)
+
+# Fallback static routes for Vercel Serverless
+@app.get("/static/css/style.css")
+async def static_css():
+    content = read_file_content("static/css/style.css")
+    return Response(content=content, media_type="text/css")
+
+@app.get("/static/js/app.js")
+async def static_js():
+    content = read_file_content("static/js/app.js")
+    return Response(content=content, media_type="application/javascript")
 
 @app.get("/api/bypass")
 async def bypass_get(url: str = Query(..., description="The shortlink or redirect URL to bypass")):
