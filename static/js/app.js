@@ -76,9 +76,9 @@ async function pasteClipboard() {
 
 async function handleBypass() {
     const input = document.getElementById('urlInput');
-    const url = input.value.trim();
+    const originalInputUrl = input.value.trim();
 
-    if (!url) {
+    if (!originalInputUrl) {
         showToast('Please enter a valid URL.');
         return;
     }
@@ -96,39 +96,81 @@ async function handleBypass() {
     resultCard.classList.add('hidden');
     progressBox.classList.remove('hidden');
     
-    let seconds = 0;
-    progressText.innerText = 'Traversing ad shortener layers & solving tokens (0s)...';
+    let totalSeconds = 0;
+    let currentStage = 1;
+    progressText.innerText = `Solving Layer ${currentStage} ad-shortener & bypassing countdowns (0s)...`;
     stepList.innerHTML = `
-        <div class="step-item"><i class="fa-solid fa-bolt fa-spin"></i> Initiating automated token handshake & multi-stage bypass...</div>
+        <div class="step-item"><i class="fa-solid fa-bolt fa-spin"></i> Initiating automated token handshake for Layer 1...</div>
     `;
 
     clearInterval(state.timerInterval);
     state.timerInterval = setInterval(() => {
-        seconds++;
-        if (seconds < 25) {
-            progressText.innerText = `Solving Layer 1 Shortener & Skipping Ad Timers (${seconds}s)...`;
-        } else if (seconds < 55) {
-            progressText.innerText = `Solving Layer 2 Nested Shortener & Redeeming Target (${seconds}s)...`;
-        } else {
-            progressText.innerText = `Finalizing Direct Link Retrieval (${seconds}s)...`;
-        }
+        totalSeconds++;
+        progressText.innerText = `Solving Layer ${currentStage} ad-shortener (${totalSeconds}s)...`;
     }, 1000);
 
+    let currentUrl = originalInputUrl;
+    let accumulatedHops = [];
+    let totalTimeSaved = 0;
+    let stagesBypassed = 0;
+
     try {
-        const response = await fetch(`/api/bypass?url=${encodeURIComponent(url)}`);
-        const data = await response.json();
+        for (let round = 1; round <= 4; round++) {
+            currentStage = round;
+            if (round > 1) {
+                stepList.innerHTML += `
+                    <div class="step-item"><i class="fa-solid fa-check" style="color:var(--success)"></i> Layer ${round - 1} Bypassed! Resolving Layer ${round} nested shortener...</div>
+                `;
+            }
+
+            const response = await fetch(`/api/bypass?url=${encodeURIComponent(currentUrl)}`);
+            if (!response.ok) {
+                throw new Error(`Server returned HTTP ${response.status}`);
+            }
+            const data = await response.json();
+
+            if (!data.success || !data.final_url || data.final_url === currentUrl) {
+                if (round === 1) {
+                    showToast(data.error || 'Could not bypass this link.');
+                    return;
+                } else {
+                    break;
+                }
+            }
+
+            if (data.hops && Array.isArray(data.hops)) {
+                accumulatedHops = accumulatedHops.concat(data.hops);
+            }
+            totalTimeSaved += (data.time_saved_seconds || 45);
+            stagesBypassed += (data.stages_bypassed || 1);
+            currentUrl = data.final_url;
+
+            // If not intermediate, we have reached the final destination!
+            if (!data.intermediate) {
+                break;
+            }
+        }
+
         clearInterval(state.timerInterval);
 
-        if (data.success && data.final_url && data.final_url !== url) {
-            displaySingleResult(data);
-            saveToHistory(url, data.final_url, data.method);
-            showToast('Direct destination link unlocked!');
-        } else {
-            showToast(data.error || 'Could not find a direct destination link.');
-        }
+        const finalResult = {
+            success: true,
+            original_url: originalInputUrl,
+            final_url: currentUrl,
+            hops: accumulatedHops,
+            stages_bypassed: stagesBypassed,
+            duration_seconds: totalSeconds,
+            time_saved_seconds: totalTimeSaved,
+            method: 'Progressive Multi-Tier AdLinkFly & WPSafeLink Direct Solver'
+        };
+
+        displaySingleResult(finalResult);
+        saveToHistory(originalInputUrl, currentUrl, finalResult.method);
+        showToast('Direct destination link unlocked!');
+
     } catch (err) {
         clearInterval(state.timerInterval);
-        showToast('Network timeout or error while solving link.');
+        showToast(err.message || 'Network timeout or error while solving link.');
     } finally {
         clearInterval(state.timerInterval);
         btn.disabled = false;

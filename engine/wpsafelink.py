@@ -181,10 +181,16 @@ class WPSafeLinkBypasser:
 
         # Step 9: Final Redemption on Shortener
         hops.append({"step": len(hops) + 1, "url": final_token_url, "stage": f"Round {round_num}: Redeeming Token on Shortener"})
-        req9 = urllib.request.Request(final_token_url, headers={**headers, 'Referer': url8})
-        with opener.open(req9) as resp:
-            html9 = resp.read().decode('utf-8', errors='ignore')
-            url9 = resp.geturl()
+        html9 = ""
+        url9 = final_token_url
+        for _ in range(4):
+            req9 = urllib.request.Request(final_token_url, headers={**headers, 'Referer': url8})
+            with opener.open(req9) as resp:
+                html9 = resp.read().decode('utf-8', errors='ignore')
+                url9 = resp.geturl()
+            if "Too Early" not in html9:
+                break
+            time.sleep(2.0)
 
         # Step 10: /links/go AJAX
         form_m = re.search(r'<form[^>]*action=["\']([^"\']*)["\'][^>]*>(.*?)</form>', html9, re.DOTALL)
@@ -217,28 +223,23 @@ class WPSafeLinkBypasser:
                 return url9
 
     @classmethod
-    def _solve_multi_stage_sync(cls, start_url: str) -> Dict[str, Any]:
+    def _solve_single_stage_entry(cls, start_url: str) -> Dict[str, Any]:
         hops = []
         t0 = time.time()
-        curr_url = start_url
-
-        for round_idx in range(1, 5):
-            next_url = cls._solve_single_stage_sync(curr_url, hops, round_idx)
-            if not next_url or next_url == curr_url or not cls.is_intermediate_shortener(next_url):
-                curr_url = next_url
-                break
-            curr_url = next_url
-
+        resolved_url = cls._solve_single_stage_sync(start_url, hops, 1)
         duration = round(time.time() - t0, 2)
+        is_intermediate = cls.is_intermediate_shortener(resolved_url) if resolved_url else False
+
         return {
-            "success": True,
-            "final_url": curr_url,
+            "success": bool(resolved_url and resolved_url != start_url),
+            "final_url": resolved_url,
+            "intermediate": is_intermediate,
             "hops": hops,
             "stages_bypassed": len(hops),
             "duration_seconds": duration,
-            "time_saved_seconds": max(80, int(duration + 60))
+            "time_saved_seconds": max(45, int(duration + 45))
         }
 
     @classmethod
     async def resolve(cls, start_url: str) -> Dict[str, Any]:
-        return await asyncio.to_thread(cls._solve_multi_stage_sync, start_url)
+        return await asyncio.to_thread(cls._solve_single_stage_entry, start_url)
