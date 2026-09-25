@@ -7,8 +7,156 @@ const state = {
     timerInterval: null
 };
 
+// --- Sound & Notification Alert Engine ---
+let audioCtx = null;
+let titleFlashInterval = null;
+let originalPageTitle = document.title;
+
+function initAudioContext() {
+    if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+            audioCtx = new AudioContextClass();
+        }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+// Pre-unlock AudioContext on first user interaction
+document.addEventListener('click', initAudioContext, { once: false });
+document.addEventListener('keydown', initAudioContext, { once: false });
+
+function playCompletionChime() {
+    if (localStorage.getItem('bypass_sound') === 'false') return;
+
+    try {
+        initAudioContext();
+        if (audioCtx) {
+            const now = audioCtx.currentTime;
+            
+            // Celebratory 4-stage Chime: C5 -> E5 -> G5 -> C6 with smooth exponential decay
+            const notes = [
+                { freq: 523.25, time: 0.0, duration: 0.15 },
+                { freq: 659.25, time: 0.12, duration: 0.15 },
+                { freq: 783.99, time: 0.24, duration: 0.18 },
+                { freq: 1046.50, time: 0.38, duration: 0.50 }
+            ];
+
+            notes.forEach(n => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(n.freq, now + n.time);
+
+                gain.gain.setValueAtTime(0.001, now + n.time);
+                gain.gain.exponentialRampToValueAtTime(0.4, now + n.time + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + n.time + n.duration);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                osc.start(now + n.time);
+                osc.stop(now + n.time + n.duration);
+            });
+        }
+    } catch (e) {
+        console.warn('Audio synthesis fallback:', e);
+    }
+}
+
+function flashTabTitle() {
+    clearInterval(titleFlashInterval);
+    let toggle = false;
+    titleFlashInterval = setInterval(() => {
+        document.title = toggle ? "⚡ (1) DIRECT LINK READY!" : "🔔 Check Your Link — BypassDirect";
+        toggle = !toggle;
+    }, 700);
+
+    const onFocus = () => {
+        clearInterval(titleFlashInterval);
+        document.title = originalPageTitle;
+        window.removeEventListener('focus', onFocus);
+    };
+    window.addEventListener('focus', onFocus);
+}
+
+function triggerCompletionAlert(finalUrl) {
+    // 1. Play crystal clear audio tone (works in background & minimized tabs)
+    playCompletionChime();
+
+    // 2. Flash browser tab title (triggers OS Taskbar flash on Windows)
+    flashTabTitle();
+
+    // 3. Desktop Native Push Notification
+    if ("Notification" in window) {
+        if (Notification.permission === "granted") {
+            const notif = new Notification("⚡ Link Bypassed Successfully!", {
+                body: "Your direct destination link is ready. Click to open.",
+                icon: "https://api.iconify.design/solar:bolt-bold.svg?color=%236366f1",
+                requireInteraction: true
+            });
+            notif.onclick = () => {
+                window.focus();
+                const openBtn = document.getElementById('openLinkBtn');
+                if (openBtn && openBtn.href) {
+                    window.open(openBtn.href, '_blank');
+                }
+            };
+        } else if (Notification.permission === "default") {
+            Notification.requestPermission();
+        }
+    }
+}
+
+function toggleSoundAlert() {
+    const isMuted = localStorage.getItem('bypass_sound') === 'false';
+    const newStatus = isMuted ? 'true' : 'false';
+    localStorage.setItem('bypass_sound', newStatus);
+    updateSoundButtonUI();
+    if (newStatus === 'true') {
+        playCompletionChime();
+        showToast('Sound alert enabled (test chime played)!');
+    } else {
+        showToast('Sound alert muted.');
+    }
+}
+
+function testCompletionAlert() {
+    initAudioContext();
+    triggerCompletionAlert('https://example.com/direct-link-unlocked');
+    showToast('Testing alert tone & notification!');
+}
+
+function updateSoundButtonUI() {
+    const btn = document.getElementById('soundToggleBtn');
+    const icon = document.getElementById('soundToggleIcon');
+    const statusText = document.getElementById('soundToggleStatus');
+    const isMuted = localStorage.getItem('bypass_sound') === 'false';
+
+    if (!btn || !icon || !statusText) return;
+
+    if (isMuted) {
+        btn.classList.remove('active');
+        icon.className = 'fa-solid fa-volume-xmark';
+        statusText.innerText = 'Sound: OFF';
+    } else {
+        btn.classList.add('active');
+        icon.className = 'fa-solid fa-volume-high';
+        statusText.innerText = 'Sound: ON';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     renderHistory();
+    updateSoundButtonUI();
+
+    // Request notification permissions proactively
+    if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission();
+    }
 
     // Dynamically set bookmarklet URL to current site origin
     const bookmarkletEl = document.getElementById('bookmarkletLink');
@@ -81,6 +229,11 @@ async function handleBypass() {
     if (!originalInputUrl) {
         showToast('Please enter a valid URL.');
         return;
+    }
+
+    initAudioContext();
+    if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission();
     }
 
     const btn = document.getElementById('bypassBtn');
@@ -168,6 +321,9 @@ async function handleBypass() {
         saveToHistory(originalInputUrl, currentUrl, finalResult.method);
         showToast('Direct destination link unlocked!');
 
+        // Trigger Audio Chime + Desktop Notification + Tab Flash!
+        triggerCompletionAlert(currentUrl);
+
     } catch (err) {
         clearInterval(state.timerInterval);
         showToast(err.message || 'Network timeout or error while solving link.');
@@ -216,6 +372,7 @@ async function handleBatchBypass() {
         return;
     }
 
+    initAudioContext();
     const btn = document.getElementById('batchBypassBtn');
     const spinner = document.getElementById('batchSpinner');
     const batchResultCard = document.getElementById('batchResultCard');
@@ -252,6 +409,10 @@ async function handleBatchBypass() {
 
         batchResultCard.classList.remove('hidden');
         showToast(`Processed ${state.batchResults.length} links!`);
+
+        // Trigger Audio Chime + Desktop Notification + Tab Flash
+        triggerCompletionAlert('Batch processing finished');
+
     } catch (err) {
         showToast('Batch processing failed.');
     } finally {

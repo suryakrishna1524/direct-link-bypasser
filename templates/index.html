@@ -27,6 +27,12 @@
             <div class="nav-links">
                 <a href="#features"><i class="fa-solid fa-shield-halved"></i> Features</a>
                 <a href="#bookmarklet"><i class="fa-solid fa-bookmark"></i> Bookmarklet</a>
+                <button class="sound-pill-btn active" id="soundToggleBtn" onclick="toggleSoundAlert()" title="Toggle Sound Tone on Completion">
+                    <i class="fa-solid fa-volume-high" id="soundToggleIcon"></i> <span id="soundToggleStatus">Sound: ON</span>
+                </button>
+                <button class="sound-test-btn" onclick="testCompletionAlert()" title="Test chime tone & notification">
+                    <i class="fa-solid fa-play"></i> Test Tone
+                </button>
                 <a href="/docs" target="_blank"><i class="fa-solid fa-code"></i> API Docs</a>
             </div>
         </header>

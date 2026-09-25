@@ -114,7 +114,8 @@ body {
 }
 .nav-links {
     display: flex;
-    gap: 20px;
+    align-items: center;
+    gap: 16px;
 }
 .nav-links a {
     color: var(--text-secondary);
@@ -127,6 +128,46 @@ body {
     gap: 6px;
 }
 .nav-links a:hover {
+    color: var(--text-primary);
+}
+.sound-pill-btn {
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    color: var(--primary-light);
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+.sound-pill-btn.active {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.4);
+    color: var(--success);
+}
+.sound-pill-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.25);
+}
+.sound-test-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.2s ease;
+}
+.sound-test-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
     color: var(--text-primary);
 }
 
