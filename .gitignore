@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Temporary / Scratch files
+*.log
+*.tmp
+step*.html
+final*.html
+page*.html
+test_*.py
+inspect_*.py
+benchmark_*.py
+trace_*.py
+find_*.py
+.system_generated/
+link-bypasser-backup-*/
+
+# Vercel
+.vercel

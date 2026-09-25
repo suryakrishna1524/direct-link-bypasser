@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BypassDirect — Instant Link Unshortener & Direct Link Generator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="background-glow glow-1"></div>
+    <div class="background-glow glow-2"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="navbar">
+            <div class="brand">
+                <div class="brand-icon"><i class="fa-solid fa-bolt-lightning"></i></div>
+                <span class="brand-name">Bypass<span>Direct</span></span>
+                <span class="badge badge-beta">v1.0 Pro</span>
+            </div>
+            <div class="nav-links">
+                <a href="#features"><i class="fa-solid fa-shield-halved"></i> Features</a>
+                <a href="#bookmarklet"><i class="fa-solid fa-bookmark"></i> Bookmarklet</a>
+                <a href="/docs" target="_blank"><i class="fa-solid fa-code"></i> API Docs</a>
+            </div>
+        </header>
+
+        <!-- Hero Section -->
+        <main class="main-content">
+            <div class="hero-text">
+                <h1>Skip The Waiting.<br><span class="gradient-text">Get Direct Links Instantly.</span></h1>
+                <p>Bypass multi-step ad shorteners, timer count downs, fake verification buttons, and intermediate redirects in milliseconds.</p>
+            </div>
+
+            <!-- Mode Selector Tabs -->
+            <div class="tab-switcher">
+                <button class="tab-btn active" id="singleTabBtn" onclick="switchTab('single')">
+                    <i class="fa-solid fa-link"></i> Single Link
+                </button>
+                <button class="tab-btn" id="batchTabBtn" onclick="switchTab('batch')">
+                    <i class="fa-solid fa-list-check"></i> Batch Mode
+                </button>
+            </div>
+
+            <!-- Single Link Form -->
+            <div class="input-card" id="singleMode">
+                <div class="input-group">
+                    <div class="input-icon"><i class="fa-solid fa-globe"></i></div>
+                    <input 
+                        type="url" 
+                        id="urlInput" 
+                        placeholder="Paste your link here (e.g. https://shortxlinks.com/5pGDTK)..." 
+                        autocomplete="off"
+                        required
+                    />
+                    <button class="btn btn-paste" onclick="pasteClipboard()" title="Paste from clipboard">
+                        <i class="fa-regular fa-clipboard"></i>
+                    </button>
+                    <button class="btn btn-primary" id="bypassBtn" onclick="handleBypass()">
+                        <span class="btn-text"><i class="fa-solid fa-bolt"></i> Bypass Now</span>
+                        <div class="spinner hidden" id="spinner"></div>
+                    </button>
+                </div>
+                <div class="sample-links">
+                    <span>Try sample:</span>
+                    <button class="sample-tag" onclick="fillSample('https://shortxlinks.com/5pGDTK')">shortxlinks.com/5pGDTK</button>
+                    <button class="sample-tag" onclick="fillSample('https://bit.ly/3J6zH5p')">bit.ly sample</button>
+                    <button class="sample-tag" onclick="fillSample('https://tinyurl.com/2p8x8k3d')">tinyurl sample</button>
+                </div>
+            </div>
+
+            <!-- Batch Mode Form -->
+            <div class="input-card hidden" id="batchMode">
+                <textarea 
+                    id="batchInput" 
+                    placeholder="Enter multiple links (one per line)...&#10;https://shortxlinks.com/5pGDTK&#10;https://bit.ly/sample" 
+                    rows="5"
+                ></textarea>
+                <div class="batch-actions">
+                    <span class="batch-count" id="batchCount">0 links detected</span>
+                    <button class="btn btn-primary" id="batchBypassBtn" onclick="handleBatchBypass()">
+                        <span class="btn-text"><i class="fa-solid fa-layer-group"></i> Process All Links</span>
+                        <div class="spinner hidden" id="batchSpinner"></div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Live Progress / Steps Stream -->
+            <div class="progress-box hidden" id="progressBox">
+                <div class="progress-header">
+                    <span class="pulse-indicator"></span>
+                    <span id="progressStatusText">Bypassing redirect layers...</span>
+                </div>
+                <div class="step-list" id="stepList"></div>
+            </div>
+
+            <!-- Single Result Card -->
+            <div class="result-card hidden" id="resultCard">
+                <div class="result-header">
+                    <div class="result-badge success-badge">
+                        <i class="fa-solid fa-circle-check"></i> Direct Link Ready
+                    </div>
+                    <div class="result-stats">
+                        <span class="stat-pill"><i class="fa-solid fa-clock-rotate-left"></i> <b id="statTimeSaved">50s</b> Saved</span>
+                        <span class="stat-pill"><i class="fa-solid fa-arrow-turn-down"></i> <b id="statHops">4</b> Hops Skipped</span>
+                        <span class="stat-pill"><i class="fa-solid fa-gauge-high"></i> <b id="statDuration">0.4s</b> Latency</span>
+                    </div>
+                </div>
+
+                <div class="final-url-box">
+                    <div class="url-display">
+                        <span class="url-label">Final Direct Destination:</span>
+                        <input type="text" id="finalUrlInput" readonly />
+                    </div>
+                    <div class="url-actions">
+                        <button class="btn btn-action btn-copy" onclick="copyFinalUrl()" id="copyBtn">
+                            <i class="fa-regular fa-copy"></i> <span id="copyBtnText">Copy Link</span>
+                        </button>
+                        <a href="#" target="_blank" class="btn btn-action btn-open" id="openLinkBtn">
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Open Direct
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Hop Timeline / Details Accordion -->
+                <details class="hops-details">
+                    <summary><i class="fa-solid fa-route"></i> Inspect Redirect Chain & Hops</summary>
+                    <div class="hops-timeline" id="hopsTimeline"></div>
+                </details>
+            </div>
+
+            <!-- Batch Results Table -->
+            <div class="batch-results-card hidden" id="batchResultCard">
+                <div class="batch-results-header">
+                    <h3><i class="fa-solid fa-list-check"></i> Batch Bypass Results</h3>
+                    <button class="btn btn-sm btn-outline" onclick="copyAllBatch()">
+                        <i class="fa-regular fa-copy"></i> Copy All Direct Links
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table class="batch-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Original Shortlink</th>
+                                <th>Direct Destination</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="batchTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- History Section -->
+            <div class="history-card" id="historyCard">
+                <div class="history-header">
+                    <h3><i class="fa-solid fa-clock-rotate-left"></i> Recent Bypasses</h3>
+                    <button class="btn btn-text-sm" onclick="clearHistory()">Clear History</button>
+                </div>
+                <div class="history-list" id="historyList">
+                    <div class="empty-history">No links bypassed yet in this session.</div>
+                </div>
+            </div>
+
+            <!-- Bookmarklet Feature -->
+            <section class="bookmarklet-section" id="bookmarklet">
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+                    <h3>1-Click Browser Bookmarklet</h3>
+                    <p>Drag this button to your browser's Bookmarks bar. Whenever you are on an annoying ad-link, simply click the bookmarklet to bypass it instantly!</p>
+                    <div class="bookmarklet-dropzone">
+                        <a href="javascript:(function(){window.open('http://127.0.0.1:8000/?url='+encodeURIComponent(location.href),'_blank');})();" class="btn btn-bookmarklet" onclick="return false;">
+                            ⚡ Bypass Link (Drag to Bookmarks)
+                        </a>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>BypassDirect — Fast, secure, and private direct link resolution.</p>
+        </footer>
+    </div>
+
+    <!-- Notification Toast -->
+    <div class="toast hidden" id="toast"></div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
