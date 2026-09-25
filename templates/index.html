@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=1.0.4">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Popunder Ad -->
     <script src="https://reactahead.com/1f/c8/87/1fc887c1ad50efd546104ae953302dcc.js"></script>
@@ -27,12 +27,6 @@
             <div class="nav-links">
                 <a href="#features"><i class="fa-solid fa-shield-halved"></i> Features</a>
                 <a href="#bookmarklet"><i class="fa-solid fa-bookmark"></i> Bookmarklet</a>
-                <button class="sound-pill-btn active" id="soundToggleBtn" onclick="toggleSoundAlert()" title="Toggle Sound Tone on Completion">
-                    <i class="fa-solid fa-volume-high" id="soundToggleIcon"></i> <span id="soundToggleStatus">Sound: ON</span>
-                </button>
-                <button class="sound-test-btn" onclick="testCompletionAlert()" title="Test chime tone & notification">
-                    <i class="fa-solid fa-play"></i> Test Tone
-                </button>
                 <a href="/docs" target="_blank"><i class="fa-solid fa-code"></i> API Docs</a>
             </div>
         </header>
@@ -54,7 +48,7 @@
                 </button>
             </div>
 
-            <!-- Sound & Notification Alert Bar (Visible on Mobile & Desktop) -->
+            <!-- Sound & Notification Alert Bar -->
             <div class="alert-controls-bar">
                 <div class="alert-info">
                     <i class="fa-solid fa-bell"></i>
@@ -65,7 +59,7 @@
                         <i class="fa-solid fa-volume-high" id="soundToggleIcon"></i> <span id="soundToggleStatus">Sound: ON</span>
                     </button>
                     <button class="sound-test-btn" onclick="testCompletionAlert()" title="Test chime tone & notification">
-                        <i class="fa-solid fa-play"></i> Test Tone & Vibrate
+                        <i class="fa-solid fa-play"></i> Test Sound & Vibrate
                     </button>
                 </div>
             </div>
@@ -222,6 +216,6 @@
     <!-- Notification Toast -->
     <div class="toast hidden" id="toast"></div>
 
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v=1.0.4"></script>
 </body>
 </html>

@@ -52,18 +52,29 @@ async def index_page():
     content = read_file_content("templates/index.html")
     if not content:
         content = "<h1>BypassDirect Web Application</h1>"
-    return HTMLResponse(content=content)
+    return HTMLResponse(
+        content=content,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 # Fallback static routes for Vercel Serverless
 @app.get("/static/css/style.css")
 async def static_css():
     content = read_file_content("static/css/style.css")
-    return Response(content=content, media_type="text/css")
+    return Response(
+        content=content,
+        media_type="text/css",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 @app.get("/static/js/app.js")
 async def static_js():
     content = read_file_content("static/js/app.js")
-    return Response(content=content, media_type="application/javascript")
+    return Response(
+        content=content,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 @app.get("/api/bypass")
 async def bypass_get(url: str = Query(..., description="The shortlink or redirect URL to bypass")):
