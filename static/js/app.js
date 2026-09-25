@@ -7,40 +7,105 @@ const state = {
     timerInterval: null
 };
 
-// --- Sound & Notification Alert Engine ---
+// --- Multi-Platform Sound, Notification & Haptic Engine ---
 let audioCtx = null;
+let fallbackAudioEl = null;
 let titleFlashInterval = null;
 let originalPageTitle = document.title;
 
-function initAudioContext() {
-    if (!audioCtx) {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (AudioContextClass) {
-            audioCtx = new AudioContextClass();
+// Generate pure WAV Data URI for universal Android/iOS/Desktop audio playback
+function createChimeBlobUrl() {
+    try {
+        const sampleRate = 22050;
+        const duration = 0.8;
+        const numSamples = Math.floor(sampleRate * duration);
+        const buffer = new ArrayBuffer(44 + numSamples * 2);
+        const view = new DataView(buffer);
+
+        function writeString(offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
         }
-    }
-    if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume();
+
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + numSamples * 2, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true); // PCM
+        view.setUint16(22, 1, true); // Mono
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeString(36, 'data');
+        view.setUint32(40, numSamples * 2, true);
+
+        // Synthesize Celebratory Chime: C5 -> E5 -> G5 -> C6
+        for (let i = 0; i < numSamples; i++) {
+            const t = i / sampleRate;
+            let sample = 0;
+            if (t >= 0.0 && t < 0.25) sample += Math.sin(2 * Math.PI * 523.25 * t) * Math.exp(-9 * t);
+            if (t >= 0.15 && t < 0.40) sample += Math.sin(2 * Math.PI * 659.25 * t) * Math.exp(-9 * (t - 0.15));
+            if (t >= 0.30 && t < 0.55) sample += Math.sin(2 * Math.PI * 783.99 * t) * Math.exp(-8 * (t - 0.30));
+            if (t >= 0.45) sample += Math.sin(2 * Math.PI * 1046.50 * t) * Math.exp(-5 * (t - 0.45));
+
+            const clamped = Math.max(-1, Math.min(1, sample * 0.75));
+            view.setInt16(44 + i * 2, clamped < 0 ? clamped * 0x8000 : clamped * 0x7FFF, true);
+        }
+
+        const blob = new Blob([view], { type: 'audio/wav' });
+        return URL.createObjectURL(blob);
+    } catch (e) {
+        return null;
     }
 }
 
-// Pre-unlock AudioContext on first user interaction
-document.addEventListener('click', initAudioContext, { once: false });
-document.addEventListener('keydown', initAudioContext, { once: false });
+function initAudioContext() {
+    try {
+        if (!audioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) {
+                audioCtx = new AudioContextClass();
+            }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        if (!fallbackAudioEl) {
+            const wavUrl = createChimeBlobUrl();
+            if (wavUrl) {
+                fallbackAudioEl = new Audio(wavUrl);
+                fallbackAudioEl.load();
+            }
+        }
+    } catch (e) {
+        console.warn('Audio init error:', e);
+    }
+}
+
+// Unlock audio context on any user interaction across Android, iOS & Desktop
+['click', 'touchstart', 'touchend', 'pointerdown', 'keydown'].forEach(evt => {
+    document.addEventListener(evt, initAudioContext, { once: false, passive: true });
+});
 
 function playCompletionChime() {
     if (localStorage.getItem('bypass_sound') === 'false') return;
 
+    initAudioContext();
+
+    // 1. Primary Engine: Web Audio API Oscillator
+    let playedWebAudio = false;
     try {
-        initAudioContext();
         if (audioCtx) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
             const now = audioCtx.currentTime;
             
-            // Celebratory 4-stage Chime: C5 -> E5 -> G5 -> C6 with smooth exponential decay
             const notes = [
-                { freq: 523.25, time: 0.0, duration: 0.15 },
-                { freq: 659.25, time: 0.12, duration: 0.15 },
-                { freq: 783.99, time: 0.24, duration: 0.18 },
+                { freq: 523.25, time: 0.0, duration: 0.16 },
+                { freq: 659.25, time: 0.12, duration: 0.16 },
+                { freq: 783.99, time: 0.24, duration: 0.20 },
                 { freq: 1046.50, time: 0.38, duration: 0.50 }
             ];
 
@@ -52,7 +117,7 @@ function playCompletionChime() {
                 osc.frequency.setValueAtTime(n.freq, now + n.time);
 
                 gain.gain.setValueAtTime(0.001, now + n.time);
-                gain.gain.exponentialRampToValueAtTime(0.4, now + n.time + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.45, now + n.time + 0.02);
                 gain.gain.exponentialRampToValueAtTime(0.0001, now + n.time + n.duration);
 
                 osc.connect(gain);
@@ -61,17 +126,41 @@ function playCompletionChime() {
                 osc.start(now + n.time);
                 osc.stop(now + n.time + n.duration);
             });
+            playedWebAudio = true;
         }
     } catch (e) {
-        console.warn('Audio synthesis fallback:', e);
+        console.warn('Web Audio synthesis error:', e);
     }
+
+    // 2. Secondary Engine: HTML5 Audio Fallback (reliable for backgrounded Android tabs)
+    try {
+        if (!playedWebAudio || fallbackAudioEl) {
+            if (!fallbackAudioEl) {
+                const wavUrl = createChimeBlobUrl();
+                if (wavUrl) fallbackAudioEl = new Audio(wavUrl);
+            }
+            if (fallbackAudioEl) {
+                fallbackAudioEl.currentTime = 0;
+                fallbackAudioEl.play().catch(() => {});
+            }
+        }
+    } catch (e) {
+        console.warn('Fallback audio playback error:', e);
+    }
+
+    // 3. Physical Haptic Vibration on Android
+    try {
+        if ("vibrate" in navigator) {
+            navigator.vibrate([250, 100, 250, 100, 400]);
+        }
+    } catch (e) {}
 }
 
 function flashTabTitle() {
     clearInterval(titleFlashInterval);
     let toggle = false;
     titleFlashInterval = setInterval(() => {
-        document.title = toggle ? "⚡ (1) DIRECT LINK READY!" : "🔔 Check Your Link — BypassDirect";
+        document.title = toggle ? "⚡ (1) DIRECT LINK READY!" : "🔔 Direct Link Unlocked — BypassDirect";
         toggle = !toggle;
     }, 700);
 
@@ -84,17 +173,17 @@ function flashTabTitle() {
 }
 
 function triggerCompletionAlert(finalUrl) {
-    // 1. Play crystal clear audio tone (works in background & minimized tabs)
+    // 1. Play audio tone + Haptic vibration
     playCompletionChime();
 
-    // 2. Flash browser tab title (triggers OS Taskbar flash on Windows)
+    // 2. Flash browser tab title (OS taskbar alert on Windows / title on mobile)
     flashTabTitle();
 
-    // 3. Desktop Native Push Notification
+    // 3. Desktop / Mobile Native Push Notification
     if ("Notification" in window) {
         if (Notification.permission === "granted") {
             const notif = new Notification("⚡ Link Bypassed Successfully!", {
-                body: "Your direct destination link is ready. Click to open.",
+                body: "Your direct destination link is ready. Tap to open.",
                 icon: "https://api.iconify.design/solar:bolt-bold.svg?color=%236366f1",
                 requireInteraction: true
             });
@@ -105,8 +194,6 @@ function triggerCompletionAlert(finalUrl) {
                     window.open(openBtn.href, '_blank');
                 }
             };
-        } else if (Notification.permission === "default") {
-            Notification.requestPermission();
         }
     }
 }
@@ -118,16 +205,22 @@ function toggleSoundAlert() {
     updateSoundButtonUI();
     if (newStatus === 'true') {
         playCompletionChime();
-        showToast('Sound alert enabled (test chime played)!');
+        showToast('Sound & Vibration Alert ON');
     } else {
-        showToast('Sound alert muted.');
+        showToast('Sound Alert Muted');
     }
 }
 
 function testCompletionAlert() {
     initAudioContext();
-    triggerCompletionAlert('https://example.com/direct-link-unlocked');
-    showToast('Testing alert tone & notification!');
+    if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission().then(() => {
+            triggerCompletionAlert('https://example.com/direct-link-unlocked');
+        });
+    } else {
+        triggerCompletionAlert('https://example.com/direct-link-unlocked');
+    }
+    showToast('Playing test chime & vibration...');
 }
 
 function updateSoundButtonUI() {
@@ -153,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderHistory();
     updateSoundButtonUI();
 
-    // Request notification permissions proactively
+    // Proactively initialize audio and notification permission on first interaction
     if ("Notification" in window && Notification.permission === "default") {
         Notification.requestPermission();
     }
@@ -321,7 +414,7 @@ async function handleBypass() {
         saveToHistory(originalInputUrl, currentUrl, finalResult.method);
         showToast('Direct destination link unlocked!');
 
-        // Trigger Audio Chime + Desktop Notification + Tab Flash!
+        // Trigger Audio Chime + Haptic Vibration + Desktop/Mobile Alert
         triggerCompletionAlert(currentUrl);
 
     } catch (err) {
@@ -410,7 +503,7 @@ async function handleBatchBypass() {
         batchResultCard.classList.remove('hidden');
         showToast(`Processed ${state.batchResults.length} links!`);
 
-        // Trigger Audio Chime + Desktop Notification + Tab Flash
+        // Trigger Audio Chime + Vibration + Notification
         triggerCompletionAlert('Batch processing finished');
 
     } catch (err) {

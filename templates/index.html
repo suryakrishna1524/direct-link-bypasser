@@ -54,6 +54,22 @@
                 </button>
             </div>
 
+            <!-- Sound & Notification Alert Bar (Visible on Mobile & Desktop) -->
+            <div class="alert-controls-bar">
+                <div class="alert-info">
+                    <i class="fa-solid fa-bell"></i>
+                    <span>Completion Alert:</span>
+                </div>
+                <div class="alert-buttons">
+                    <button class="sound-pill-btn active" id="soundToggleBtn" onclick="toggleSoundAlert()" title="Toggle Sound Tone on Completion">
+                        <i class="fa-solid fa-volume-high" id="soundToggleIcon"></i> <span id="soundToggleStatus">Sound: ON</span>
+                    </button>
+                    <button class="sound-test-btn" onclick="testCompletionAlert()" title="Test chime tone & notification">
+                        <i class="fa-solid fa-play"></i> Test Tone & Vibrate
+                    </button>
+                </div>
+            </div>
+
             <!-- Single Link Form -->
             <div class="input-card" id="singleMode">
                 <div class="input-group">
