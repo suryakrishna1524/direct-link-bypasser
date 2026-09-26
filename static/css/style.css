@@ -717,53 +717,6 @@ body {
     cursor: grab;
 }
 
-/* Prefix Box */
-.prefix-section {
-    margin-top: 20px;
-}
-.prefix-example-box {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    max-width: 620px;
-    margin: 0 auto;
-    text-align: left;
-}
-.prefix-row {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-.prefix-tag {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    color: var(--text-muted);
-}
-.prefix-tag.highlight {
-    color: var(--accent);
-}
-.prefix-row code {
-    background: rgba(255, 255, 255, 0.04);
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-    word-break: break-all;
-    color: var(--text-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-.prefix-row code.highlight-code {
-    background: rgba(99, 102, 241, 0.12);
-    border-color: rgba(99, 102, 241, 0.3);
-    color: var(--primary-light);
-    font-weight: 600;
-}
-
 /* Toast */
 .toast {
     position: fixed;

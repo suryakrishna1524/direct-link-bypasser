@@ -251,16 +251,11 @@ document.addEventListener('DOMContentLoaded', () => {
         Notification.requestPermission();
     }
 
-    // Dynamically set bookmarklet & prefix URLs to current site origin
+    // Dynamically set bookmarklet URL to current site origin
     const bookmarkletEl = document.getElementById('bookmarkletLink');
     if (bookmarkletEl) {
         const origin = window.location.origin;
         bookmarkletEl.href = `javascript:(function(){window.open('${origin}/?url='+encodeURIComponent(location.href),'_blank');})();`;
-    }
-
-    const prefixCodeEl = document.getElementById('prefixExampleText');
-    if (prefixCodeEl) {
-        prefixCodeEl.innerText = `${window.location.origin}/https://shortxlinks.com/5pGDTK`;
     }
 
     // 1. Check if ?url= query parameter is passed
