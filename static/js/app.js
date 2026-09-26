@@ -251,18 +251,48 @@ document.addEventListener('DOMContentLoaded', () => {
         Notification.requestPermission();
     }
 
-    // Dynamically set bookmarklet URL to current site origin
+    // Dynamically set bookmarklet & prefix URLs to current site origin
     const bookmarkletEl = document.getElementById('bookmarkletLink');
     if (bookmarkletEl) {
         const origin = window.location.origin;
         bookmarkletEl.href = `javascript:(function(){window.open('${origin}/?url='+encodeURIComponent(location.href),'_blank');})();`;
     }
 
-    // Check if ?url= query parameter is passed (e.g. from bookmarklet)
+    const prefixCodeEl = document.getElementById('prefixExampleText');
+    if (prefixCodeEl) {
+        prefixCodeEl.innerText = `${window.location.origin}/https://shortxlinks.com/5pGDTK`;
+    }
+
+    // 1. Check if ?url= query parameter is passed
     const urlParams = new URLSearchParams(window.location.search);
-    const paramUrl = urlParams.get('url');
-    if (paramUrl) {
-        document.getElementById('urlInput').value = paramUrl;
+    let targetUrl = urlParams.get('url');
+
+    // 2. Check if URL path is passed as a direct shortcut (e.g. /https://shortxlinks.com/... or /shortxlinks.com/...)
+    if (!targetUrl) {
+        let rawPath = window.location.pathname.replace(/^\/+/, '');
+        if (rawPath && rawPath !== 'index.html') {
+            // Fix collapsed slashes
+            if (rawPath.startsWith('http:/') && !rawPath.startsWith('http://')) {
+                rawPath = rawPath.replace('http:/', 'http://');
+            } else if (rawPath.startsWith('https:/') && !rawPath.startsWith('https://')) {
+                rawPath = rawPath.replace('https:/', 'https://');
+            } else if (!rawPath.startsWith('http://') && !rawPath.startsWith('https://')) {
+                if (rawPath.includes('.') && !rawPath.startsWith('api') && !rawPath.startsWith('static') && !rawPath.startsWith('docs')) {
+                    rawPath = 'https://' + rawPath;
+                }
+            }
+
+            if (rawPath.startsWith('http://') || rawPath.startsWith('https://')) {
+                if (window.location.search && !targetUrl) {
+                    rawPath += window.location.search;
+                }
+                targetUrl = rawPath;
+            }
+        }
+    }
+
+    if (targetUrl) {
+        document.getElementById('urlInput').value = targetUrl;
         handleBypass();
     }
 

@@ -102,6 +102,20 @@ async def batch_bypass(req: BatchBypassRequest):
 async def health_check():
     return {"status": "ok", "service": "Direct Link Bypasser"}
 
+# Catch-all route to support prefix shortcuts (e.g. /https://shortxlinks.com/... or /shortxlinks.com/...)
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+async def catch_all_page(full_path: str):
+    # Ignore API, static, and docs paths
+    if full_path.startswith("api/") or full_path.startswith("static/") or full_path in ["docs", "openapi.json", "favicon.ico"]:
+        raise HTTPException(status_code=404, detail="Not Found")
+    content = read_file_content("templates/index.html")
+    if not content:
+        content = "<h1>BypassDirect Web Application</h1>"
+    return HTMLResponse(
+        content=content,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
