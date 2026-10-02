@@ -93,20 +93,27 @@ class WPSafeLinkBypasser:
             html = resp.read().decode('utf-8', errors='ignore')
             curr_url = resp.geturl()
 
-        # Check for initial shortener 'go' form or action
+        # Check for initial shortener 'go' form, landing form, or safelink redirect
         go_m = re.search(r'name=["\']go["\']\s+value=["\']([^"\']+)["\']', html)
         act_m = re.search(r'<form[^>]*action=["\']([^"\']+)["\']', html)
+        form_landing_m = re.search(r'<form[^>]*action=["\']([^"\']*)["\'][^>]*>(.*?)</form>', html, re.DOTALL)
+        safelink_m = re.search(r'["\']([^"\']*safelink_redirect=[^"\']*)["\']', html)
         
-        if not (go_m and act_m):
-            # Check if safelink_redirect is already on page
-            safelink_m = re.search(r'["\']([^"\']*safelink_redirect=[^"\']*)["\']', html)
-            if not safelink_m:
-                return curr_url
+        if go_m and act_m:
+            curr_action = act_m.group(1)
+            post_data = {'go': go_m.group(1)}
+        elif form_landing_m and ('newwpsafelink' in form_landing_m.group(2) or 'humanverification' in form_landing_m.group(2)):
+            act = form_landing_m.group(1) or curr_url
+            if not act.startswith('http'):
+                act = urllib.parse.urljoin(curr_url, act)
+            inputs = dict(re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']', form_landing_m.group(2)))
+            curr_action = act
+            post_data = inputs
+        elif safelink_m:
             curr_action = safelink_m.group(1)
             post_data = None
         else:
-            curr_action = act_m.group(1)
-            post_data = {'go': go_m.group(1)}
+            return curr_url
 
         ref = curr_url
         final_token_url = None
