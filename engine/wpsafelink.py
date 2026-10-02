@@ -7,19 +7,30 @@ import json
 import asyncio
 import time
 import http.cookiejar
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
-KNOWN_SHORTENER_HOSTS = [
-    'shortxlinks', 'softurl', 'droplink', 'adlinkfly', 'safelink',
-    'trickscolony', 'ibapam', 'evloadercarrompool',
-    'thetechhint', 'distancedata', 'techhint'
+# Non-exhaustive keywords for fast matching, but engine works dynamically on any domain via HTML signature
+KNOWN_SHORTENER_HINTS = [
+    'short', 'link', 'safe', 'url', 'drop', 'fly', 'earn', 'shrink',
+    'tiny', 'bitly', 'droplink', 'adlinkfly', 'safelink', 'wp',
+    'thetechhint', 'distancedata', 'trickscolony', 'ibapam'
+]
+
+# Known final destination domains that should never be marked intermediate
+FINAL_DESTINATION_DOMAINS = [
+    't.me', 'telegram.me', 'telegram.dog', 'drive.google.com', 'mega.nz',
+    'mega.co.nz', 'mediafire.com', 'github.com', 'youtube.com', 'youtu.be',
+    'dropbox.com', '1fichier.com', 'pixeldrain.com', 'send.cm', 'racaty.net',
+    'krakenfiles.com', 'gofile.io', 'terabox.com', 'workupload.com'
 ]
 
 class WPSafeLinkBypasser:
     """
-    Optimized high-speed multi-tier WPSafeLink & AdLinkFly chained shortener solver.
-    Eliminates all client-side countdown delays and syncs with the exact minimum
-    server-side security cooldown (30.0s) for maximum throughput.
+    Universal Dynamic Multi-Layer SafeLink & AdLinkFly Solver.
+    
+    Operates completely dynamically via DOM form signatures and Base64 safelink payloads.
+    Does NOT depend on hardcoded intermediate blog domains. Automatically traverses 1, 2, 3, or N
+    landing article layers and skips all client-side countdowns instantly.
     """
     DEFAULT_HEADERS = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -29,13 +40,43 @@ class WPSafeLinkBypasser:
 
     @classmethod
     def matches(cls, url: str) -> bool:
-        domain = urllib.parse.urlparse(url).netloc.lower()
-        return any(k in domain or k in url.lower() for k in KNOWN_SHORTENER_HOSTS)
+        parsed = urllib.parse.urlparse(url)
+        domain = parsed.netloc.lower()
+        path = parsed.path.strip('/')
+        
+        # Fast exit for known final platforms
+        if any(d in domain for d in FINAL_DESTINATION_DOMAINS):
+            return False
+            
+        # Match if domain has shortener hints or path looks like a shortener slug (1-15 chars)
+        if any(k in domain for k in KNOWN_SHORTENER_HINTS):
+            return True
+            
+        if path and len(path) <= 20 and not ('.' in path and not path.endswith('.html')):
+            return True
+            
+        return False
 
     @classmethod
     def is_intermediate_shortener(cls, url: str) -> bool:
-        domain = urllib.parse.urlparse(url).netloc.lower()
-        return any(k in domain for k in ['shortxlinks.com', 'softurl.in', 'droplink', 'adlinkfly'])
+        if not url:
+            return False
+        parsed = urllib.parse.urlparse(url)
+        domain = parsed.netloc.lower()
+        path = parsed.path.lower()
+        
+        if any(d in domain for d in FINAL_DESTINATION_DOMAINS):
+            return False
+            
+        # Check direct download extensions
+        if any(path.endswith(ext) for ext in ['.zip', '.rar', '.7z', '.tar', '.gz', '.mp4', '.mkv', '.pdf', '.apk', '.exe']):
+            return False
+            
+        # If it has shortener keywords or looks like another shortener
+        if any(k in domain for k in KNOWN_SHORTENER_HINTS):
+            return True
+            
+        return False
 
     @classmethod
     def _solve_single_stage_sync(cls, shortlink: str, hops: List[Dict[str, Any]], round_num: int) -> str:
@@ -46,131 +87,91 @@ class WPSafeLinkBypasser:
 
         hops.append({"step": len(hops) + 1, "url": shortlink, "stage": f"Round {round_num}: Initial Handshake"})
         
-        # Step 1: Initial GET
+        # Step 1: Initial Handshake GET
         req1 = urllib.request.Request(shortlink, headers=headers)
         with opener.open(req1) as resp:
-            html1 = resp.read().decode('utf-8', errors='ignore')
-            url1 = resp.geturl()
+            html = resp.read().decode('utf-8', errors='ignore')
+            curr_url = resp.geturl()
 
-        action1_m = re.search(r'action=["\']([^"\']+)["\']', html1)
-        go1_m = re.search(r'name=["\']go["\']\s+value=["\']([^"\']+)["\']', html1)
-        if not action1_m or not go1_m:
-            return url1
+        # Check for initial shortener 'go' form or action
+        go_m = re.search(r'name=["\']go["\']\s+value=["\']([^"\']+)["\']', html)
+        act_m = re.search(r'<form[^>]*action=["\']([^"\']+)["\']', html)
+        
+        if not (go_m and act_m):
+            # Check if safelink_redirect is already on page
+            safelink_m = re.search(r'["\']([^"\']*safelink_redirect=[^"\']*)["\']', html)
+            if not safelink_m:
+                return curr_url
+            curr_action = safelink_m.group(1)
+            post_data = None
+        else:
+            curr_action = act_m.group(1)
+            post_data = {'go': go_m.group(1)}
 
-        action1 = action1_m.group(1)
-        go1 = go1_m.group(1)
+        ref = curr_url
+        final_token_url = None
 
-        # Step 2: POST to Landing (Fast-Forward)
-        hops.append({"step": len(hops) + 1, "url": action1, "stage": f"Round {round_num}: Layer 1 Landing"})
-        data1 = urllib.parse.urlencode({'go': go1}).encode('utf-8')
-        req2 = urllib.request.Request(action1, data=data1, headers={**headers, 'Referer': shortlink})
-        with opener.open(req2) as resp:
-            html2 = resp.read().decode('utf-8', errors='ignore')
-            url2 = resp.geturl()
+        # Universal Dynamic Multi-Layer State Machine (Traverses any number of WordPress landing/article layers)
+        for layer_hop in range(1, 15):
+            if post_data is not None:
+                data_bytes = urllib.parse.urlencode(post_data).encode('utf-8')
+                req_hop = urllib.request.Request(curr_action, data=data_bytes, headers={**headers, 'Referer': ref})
+                stage_desc = f"Round {round_num}: Fast-Forwarding Article Layer {layer_hop}"
+            else:
+                req_hop = urllib.request.Request(curr_action, headers={**headers, 'Referer': ref})
+                stage_desc = f"Round {round_num}: Entering Nested SafeLink Layer {layer_hop}"
 
-        action2_m = re.search(r'action=["\']([^"\']+)["\']', html2)
-        newwpsafe2_m = re.search(r'name=["\']newwpsafelink["\']\s+value=["\']([^"\']+)["\']', html2)
-        humanver2_m = re.search(r'name=["\']humanverification["\']\s+value=["\']([^"\']+)["\']', html2)
+            hops.append({"step": len(hops) + 1, "url": curr_action, "stage": stage_desc})
 
-        if not action2_m or not newwpsafe2_m or not humanver2_m:
-            return url2
+            with opener.open(req_hop) as resp:
+                html = resp.read().decode('utf-8', errors='ignore')
+                ref = resp.geturl()
 
-        action2 = action2_m.group(1)
-        newwpsafelink2 = newwpsafe2_m.group(1)
-        humanver2 = humanver2_m.group(1)
+            # 1. Search for safelink_redirect parameter in JavaScript or DOM links
+            safelink_m = re.search(r"window\.open\(['\"]([^'\"]*safelink_redirect=[^'\"]*)['\"]", html)
+            if not safelink_m:
+                safelink_m = re.search(r'["\']([^"\']*safelink_redirect=[^"\']*)["\']', html)
 
-        # Step 3: POST to Article 1 (Fast-Forward)
-        hops.append({"step": len(hops) + 1, "url": action2, "stage": f"Round {round_num}: Layer 1 Article 1"})
-        data2 = urllib.parse.urlencode({'humanverification': humanver2, 'newwpsafelink': newwpsafelink2}).encode('utf-8')
-        req3 = urllib.request.Request(action2, data=data2, headers={**headers, 'Referer': action1})
-        with opener.open(req3) as resp:
-            html3 = resp.read().decode('utf-8', errors='ignore')
-            url3 = resp.geturl()
+            if safelink_m:
+                safelink_full_url = safelink_m.group(1)
+                redir_payload = safelink_full_url.split('safelink_redirect=')[1].split('&')[0].split('"')[0].split("'")[0]
+                redir_payload = urllib.parse.unquote(redir_payload)
+                try:
+                    decoded = base64.b64decode(redir_payload).decode('utf-8', errors='ignore')
+                    data_json = json.loads(decoded)
+                    
+                    if data_json.get('second_safelink_url') or data_json.get('next_safelink_url'):
+                        # Found chained intermediary layer -> follow URL dynamically
+                        curr_action = safelink_full_url
+                        post_data = None
+                        continue
+                    elif data_json.get('safelink'):
+                        # Unlocked shortener redemption token!
+                        final_token_url = data_json['safelink']
+                        break
+                except Exception:
+                    pass
 
-        form3_m = re.search(r'<form[^>]*id=["\']wpsafelink-landing["\'][^>]*action=["\']([^"\']+)["\']', html3)
-        newwpsafe3_m = re.search(r'name=["\']newwpsafelink["\'][^>]*value=["\']([^"\']+)["\']', html3)
-        if not form3_m or not newwpsafe3_m:
-            return url3
+            # 2. Extract next form dynamically from page
+            form_m = re.search(r'<form[^>]*id=["\']wpsafelink-landing["\'][^>]*action=["\']([^"\']*)["\'][^>]*>(.*?)</form>', html, re.DOTALL)
+            if not form_m:
+                form_m = re.search(r'<form[^>]*action=["\']([^"\']*)["\'][^>]*>(.*?)</form>', html, re.DOTALL)
 
-        action3 = form3_m.group(1)
-        newwpsafe3 = newwpsafe3_m.group(1)
+            if form_m:
+                act = form_m.group(1) or ref
+                if not act.startswith('http'):
+                    act = urllib.parse.urljoin(ref, act)
+                body = form_m.group(2)
+                inputs = dict(re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']', body))
+                curr_action = act
+                post_data = inputs
+            else:
+                break
 
-        # Step 4: POST to Article 2 (Skipping 25s JavaScript countdown instantly)
-        hops.append({"step": len(hops) + 1, "url": action3, "stage": f"Round {round_num}: Bypassing 25s Layer 1 Countdown"})
-        data3 = urllib.parse.urlencode({'newwpsafelink': newwpsafe3}).encode('utf-8')
-        req4 = urllib.request.Request(action3, data=data3, headers={**headers, 'Referer': url3})
-        with opener.open(req4) as resp:
-            html4 = resp.read().decode('utf-8', errors='ignore')
-            url4 = resp.geturl()
+        if not final_token_url:
+            return ref
 
-        safelink_m4 = re.search(r"window\.open\(['\"]([^'\"]*safelink_redirect=[^'\"]*)['\"]", html4)
-        if not safelink_m4:
-            return url4
-
-        safelink_url4 = safelink_m4.group(1)
-
-        # Step 5: GET to Layer 2 domain
-        hops.append({"step": len(hops) + 1, "url": safelink_url4, "stage": f"Round {round_num}: Layer 2 Entry"})
-        req5 = urllib.request.Request(safelink_url4, headers={**headers, 'Referer': url4})
-        with opener.open(req5) as resp:
-            html5 = resp.read().decode('utf-8', errors='ignore')
-            url5 = resp.geturl()
-
-        action5_m = re.search(r'action=["\']([^"\']+)["\']', html5)
-        if not action5_m:
-            return url5
-
-        action5 = action5_m.group(1)
-        inputs5 = dict(re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']', html5))
-
-        # Step 6: POST to Layer 2 Landing
-        data5 = urllib.parse.urlencode(inputs5).encode('utf-8')
-        req6 = urllib.request.Request(action5, data=data5, headers={**headers, 'Referer': url5})
-        with opener.open(req6) as resp:
-            html6 = resp.read().decode('utf-8', errors='ignore')
-            url6 = resp.geturl()
-
-        action6_m = re.search(r'action=["\']([^"\']+)["\']', html6)
-        if not action6_m:
-            return url6
-
-        action6 = action6_m.group(1)
-        inputs6 = dict(re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']', html6))
-
-        # Step 7: POST to Layer 2 Article 1
-        hops.append({"step": len(hops) + 1, "url": action6, "stage": f"Round {round_num}: Layer 2 Article 1"})
-        data6 = urllib.parse.urlencode(inputs6).encode('utf-8')
-        req7 = urllib.request.Request(action6, data=data6, headers={**headers, 'Referer': url6})
-        with opener.open(req7) as resp:
-            html7 = resp.read().decode('utf-8', errors='ignore')
-            url7 = resp.geturl()
-
-        form7_m = re.search(r'<form[^>]*id=["\']wpsafelink-landing["\'][^>]*action=["\']([^"\']+)["\']', html7)
-        if not form7_m:
-            return url7
-
-        action7 = form7_m.group(1)
-        inputs7 = dict(re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']', html7))
-
-        # Step 8: POST to Layer 2 Article 2 (Skipping second 25s countdown instantly)
-        hops.append({"step": len(hops) + 1, "url": action7, "stage": f"Round {round_num}: Bypassing 25s Layer 2 Countdown"})
-        data7 = urllib.parse.urlencode(inputs7).encode('utf-8')
-        req8 = urllib.request.Request(action7, data=data7, headers={**headers, 'Referer': url7})
-        with opener.open(req8) as resp:
-            html8 = resp.read().decode('utf-8', errors='ignore')
-            url8 = resp.geturl()
-
-        safelink_m8 = re.search(r"window\.open\(['\"]([^'\"]*safelink_redirect=[^'\"]*)['\"]", html8)
-        if not safelink_m8:
-            return url8
-
-        safelink_url8 = safelink_m8.group(1)
-        redir_payload8 = safelink_url8.split('safelink_redirect=')[1]
-        decoded8 = base64.b64decode(redir_payload8).decode('utf-8')
-        data_json8 = json.loads(decoded8)
-        final_token_url = data_json8.get('safelink')
-
-        # Precise server rate limit sync (30s required by backend timestamp)
+        # Step 3: Precise server rate limit cooldown sync (30.0s)
         elapsed = time.time() - t_start
         if elapsed < 30.0:
             wait_needed = 30.0 - elapsed
@@ -181,48 +182,48 @@ class WPSafeLinkBypasser:
             })
             time.sleep(wait_needed)
 
-        # Step 9: Final Redemption on Shortener
+        # Step 4: Final Token Redemption on Shortener
         hops.append({"step": len(hops) + 1, "url": final_token_url, "stage": f"Round {round_num}: Redeeming Token on Shortener"})
-        html9 = ""
-        url9 = final_token_url
+        html_red = ""
+        url_red = final_token_url
         for _ in range(4):
-            req9 = urllib.request.Request(final_token_url, headers={**headers, 'Referer': url8})
-            with opener.open(req9) as resp:
-                html9 = resp.read().decode('utf-8', errors='ignore')
-                url9 = resp.geturl()
-            if "Too Early" not in html9:
+            req_red = urllib.request.Request(final_token_url, headers={**headers, 'Referer': ref})
+            with opener.open(req_red) as resp_red:
+                html_red = resp_red.read().decode('utf-8', errors='ignore')
+                url_red = resp_red.geturl()
+            if "Too Early" not in html_red:
                 break
             time.sleep(2.0)
 
-        # Step 10: /links/go AJAX
-        form_m = re.search(r'<form[^>]*action=["\']([^"\']*)["\'][^>]*>(.*?)</form>', html9, re.DOTALL)
-        if not form_m:
-            return url9
+        # Step 5: /links/go AJAX Submission
+        form_go = re.search(r'<form[^>]*action=["\']([^"\']*)["\'][^>]*>(.*?)</form>', html_red, re.DOTALL)
+        if not form_go:
+            return url_red
 
-        go_action = form_m.group(1)
-        go_body = form_m.group(2)
+        go_action = form_go.group(1)
+        go_body = form_go.group(2)
         go_inputs = dict(re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']', go_body))
 
         if not go_action.startswith('http'):
-            go_action = urllib.parse.urljoin(url9, go_action)
+            go_action = urllib.parse.urljoin(url_red, go_action)
 
         headers_ajax = dict(headers)
         headers_ajax.update({
             'X-Requested-With': 'XMLHttpRequest',
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Referer': url9
+            'Referer': url_red
         })
 
         go_data = urllib.parse.urlencode(go_inputs).encode('utf-8')
-        req10 = urllib.request.Request(go_action, data=go_data, headers=headers_ajax)
+        req_ajax = urllib.request.Request(go_action, data=go_data, headers=headers_ajax)
         
-        with opener.open(req10) as resp10:
-            res10_text = resp10.read().decode('utf-8', errors='ignore')
+        with opener.open(req_ajax) as resp_ajax:
+            res_text = resp_ajax.read().decode('utf-8', errors='ignore')
             try:
-                res10_json = json.loads(res10_text)
-                return res10_json.get('url', url9)
+                res_json = json.loads(res_text)
+                return res_json.get('url', url_red)
             except Exception:
-                return url9
+                return url_red
 
     @classmethod
     def _solve_single_stage_entry(cls, start_url: str) -> Dict[str, Any]:
