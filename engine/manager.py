@@ -76,16 +76,16 @@ class BypassManager:
                     is_confirmed = BypassDatabase.is_confirmed_destination(final_url)
                     res["verified_destination"] = is_confirmed
                     
-                    # Auto-cache ONLY if confirmed media/direct download or not intermediate
-                    if is_confirmed and final_url and final_url != url:
+                    # Cache to DB so subsequent requests are 0ms instant
+                    if final_url and final_url != url:
                         await BypassDatabase.set_cached_bypass(
                             url,
                             final_url,
                             res.get("hops", []),
                             res["method"],
-                            False,
+                            res.get("intermediate", False),
                             res.get("time_saved_seconds", 60),
-                            user_verified=False
+                            user_verified=is_confirmed
                         )
                     return res
                 elif res.get("error"):

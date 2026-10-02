@@ -328,6 +328,48 @@ function fillSample(url) {
     handleBypass();
 }
 
+// --- Local Storage Instant 0ms Cache ---
+function getLocalCachedBypass(url) {
+    try {
+        const cache = JSON.parse(localStorage.getItem('bypass_local_cache_v2') || '{}');
+        const cleanUrl = url.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        return cache[cleanUrl] || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function setLocalCachedBypass(origUrl, data) {
+    try {
+        const cache = JSON.parse(localStorage.getItem('bypass_local_cache_v2') || '{}');
+        const cleanUrl = origUrl.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        cache[cleanUrl] = {
+            final_url: data.final_url,
+            original_url: origUrl,
+            hops: data.hops || [],
+            stages_bypassed: data.stages_bypassed || 1,
+            time_saved_seconds: data.time_saved_seconds || 60,
+            method: data.method || '⚡ Instant Browser Cache (0.0s)',
+            partial: Boolean(data.partial),
+            verified_destination: Boolean(data.verified_destination),
+            cached: true,
+            timestamp: Date.now()
+        };
+        const keys = Object.keys(cache);
+        if (keys.length > 100) delete cache[keys[0]];
+        localStorage.setItem('bypass_local_cache_v2', JSON.stringify(cache));
+    } catch (e) {}
+}
+
+function clearLocalCachedBypass(url) {
+    try {
+        const cache = JSON.parse(localStorage.getItem('bypass_local_cache_v2') || '{}');
+        const cleanUrl = url.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        delete cache[cleanUrl];
+        localStorage.setItem('bypass_local_cache_v2', JSON.stringify(cache));
+    } catch (e) {}
+}
+
 async function pasteClipboard() {
     try {
         const text = await navigator.clipboard.readText();
@@ -352,6 +394,21 @@ async function handleBypass(forceLive = false) {
     initAudioContext();
     if ("Notification" in window && Notification.permission === "default") {
         Notification.requestPermission();
+    }
+
+    // 0. Instant Local Browser Cache Check (0.00s Instant Hit)
+    if (!forceLive) {
+        const localHit = getLocalCachedBypass(originalInputUrl);
+        if (localHit && localHit.final_url) {
+            localHit.duration_seconds = 0.00;
+            displaySingleResult(localHit);
+            saveToHistory(originalInputUrl, localHit.final_url, localHit.method);
+            showToast('⚡ Instant 0s Cache Hit!');
+            triggerCompletionAlert(localHit.final_url);
+            return;
+        }
+    } else {
+        clearLocalCachedBypass(originalInputUrl);
     }
 
     const btn = document.getElementById('bypassBtn');
@@ -424,6 +481,7 @@ async function handleBypass(forceLive = false) {
                         method: `Progressive Multi-Tier Solver (Layer ${round - 1} Bypassed)`
                     };
                     displaySingleResult(finalResult);
+                    setLocalCachedBypass(originalInputUrl, finalResult);
                     saveToHistory(originalInputUrl, currentUrl, finalResult.method);
                     showToast(`Layer ${round - 1} bypassed!`);
                     triggerCompletionAlert(currentUrl);
@@ -456,6 +514,7 @@ async function handleBypass(forceLive = false) {
                 };
 
                 displaySingleResult(finalResult);
+                setLocalCachedBypass(originalInputUrl, finalResult);
                 saveToHistory(originalInputUrl, currentUrl, finalResult.method);
                 showToast(isCached ? '⚡ Instant Cache Hit (0s)!' : 'Direct destination link unlocked!');
 
@@ -479,6 +538,7 @@ async function handleBypass(forceLive = false) {
         };
 
         displaySingleResult(finalResult);
+        setLocalCachedBypass(originalInputUrl, finalResult);
         saveToHistory(originalInputUrl, currentUrl, finalResult.method);
         showToast('Direct destination link unlocked!');
 
@@ -629,6 +689,7 @@ async function submitUserVerifiedLink() {
                 method: 'Community Verified Direct Link'
             };
             displaySingleResult(finalResult);
+            setLocalCachedBypass(origUrl, finalResult);
             saveToHistory(origUrl, verifiedUrl, finalResult.method);
             verifiedInput.value = '';
         } else {

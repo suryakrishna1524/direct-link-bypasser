@@ -100,6 +100,18 @@ class BypassDatabase:
                     )
                 """)
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON bypass_cache(created_at)")
+                
+                # Dynamic column migration for existing tables
+                cursor.execute("PRAGMA table_info(bypass_cache)")
+                cols = [row[1] for row in cursor.fetchall()]
+                if 'verified' not in cols:
+                    cursor.execute("ALTER TABLE bypass_cache ADD COLUMN verified INTEGER DEFAULT 0")
+                if 'intermediate' not in cols:
+                    cursor.execute("ALTER TABLE bypass_cache ADD COLUMN intermediate INTEGER DEFAULT 0")
+                if 'time_saved' not in cols:
+                    cursor.execute("ALTER TABLE bypass_cache ADD COLUMN time_saved INTEGER DEFAULT 60")
+                if 'hits' not in cols:
+                    cursor.execute("ALTER TABLE bypass_cache ADD COLUMN hits INTEGER DEFAULT 1")
                 conn.commit()
         except Exception as e:
             print("SQLite init warning:", e)
@@ -234,15 +246,8 @@ class BypassDatabase:
         time_saved: int = 60,
         user_verified: bool = False
     ) -> bool:
-        if not original_url or not final_url or original_url == final_url:
-            return False
-
-        # If not user verified, check if destination is confirmed high-confidence media
+        # If user verified, mark as verified destination
         is_confirmed = user_verified or cls.is_confirmed_destination(final_url)
-        
-        # Don't auto-cache intermediate / captcha blocked pages unless explicitly verified
-        if intermediate and not user_verified:
-            return False
 
         cls._init_db()
         norm_url = cls.normalize_url(original_url)
