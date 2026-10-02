@@ -9,39 +9,49 @@ from .db import BypassDatabase
 
 class BypassManager:
     @classmethod
-    async def bypass_url(cls, raw_url: str) -> Dict[str, Any]:
+    async def bypass_url(cls, raw_url: str, force: bool = False) -> Dict[str, Any]:
         url = raw_url.strip()
         if not url.startswith('http://') and not url.startswith('https://'):
             url = 'https://' + url
 
         start_time = time.time()
 
-        # 0. Instant Database / Cloud Cache Lookup (0ms latency for previously solved links)
-        try:
-            cached = await BypassDatabase.get_cached_bypass(url)
-            if cached and cached.get("final_url") and cached["final_url"] != url:
-                duration = round(time.time() - start_time, 4)
-                cached.update({
-                    "success": True,
-                    "cached": True,
-                    "original_url": url,
-                    "duration_seconds": duration,
-                    "method": "Instant Community Cache (Previously Bypassed)"
-                })
-                return cached
-        except Exception:
-            pass
+        # 0. Instant Database / Cloud Cache Lookup (unless force refresh requested)
+        if not force:
+            try:
+                cached = await BypassDatabase.get_cached_bypass(url)
+                if cached and cached.get("final_url") and cached["final_url"] != url:
+                    duration = round(time.time() - start_time, 4)
+                    cached.update({
+                        "success": True,
+                        "cached": True,
+                        "original_url": url,
+                        "duration_seconds": duration,
+                        "verified_destination": cached.get("verified", True),
+                        "method": "Instant Community Cache (Previously Bypassed)"
+                    })
+                    return cached
+            except Exception:
+                pass
+        else:
+            # Clear old cache entry on force refresh
+            try:
+                await BypassDatabase.delete_cached_bypass(url)
+            except Exception:
+                pass
 
         # 1. Instant Token / Query Extraction (0s latency)
         instant_target = QueryDecoder.extract_from_url(url)
         if instant_target and instant_target != url:
             duration = round(time.time() - start_time, 3)
+            is_confirmed = BypassDatabase.is_confirmed_destination(instant_target)
             res = {
                 "success": True,
                 "original_url": url,
                 "final_url": instant_target,
                 "method": "Instant Query / Base64 Token Decoded",
                 "hops_bypassed": 1,
+                "verified_destination": is_confirmed,
                 "hops": [
                     {"step": 1, "url": url, "stage": "Input URL"},
                     {"step": 2, "url": instant_target, "stage": "Decoded Target URL"}
@@ -49,7 +59,8 @@ class BypassManager:
                 "duration_seconds": duration,
                 "time_saved_seconds": 30
             }
-            await BypassDatabase.set_cached_bypass(url, instant_target, res["hops"], res["method"], False, 30)
+            if is_confirmed:
+                await BypassDatabase.set_cached_bypass(url, instant_target, res["hops"], res["method"], False, 30, user_verified=False)
             return res
 
         # 2. Multi-tier Ad / SafeLink shorteners (ShortXLinks, WPSafeLink, SoftURL, etc.)
@@ -61,14 +72,20 @@ class BypassManager:
                     res.update({
                         "method": "WPSafeLink Multi-Tier Recursive Solver"
                     })
-                    if res.get("final_url") and res["final_url"] != url:
+                    final_url = res.get("final_url")
+                    is_confirmed = BypassDatabase.is_confirmed_destination(final_url)
+                    res["verified_destination"] = is_confirmed
+                    
+                    # Auto-cache ONLY if confirmed media/direct download or not intermediate
+                    if is_confirmed and final_url and final_url != url:
                         await BypassDatabase.set_cached_bypass(
                             url,
-                            res["final_url"],
+                            final_url,
                             res.get("hops", []),
                             res["method"],
-                            res.get("intermediate", False),
-                            res.get("time_saved_seconds", 60)
+                            False,
+                            res.get("time_saved_seconds", 60),
+                            user_verified=False
                         )
                     return res
                 elif res.get("error"):
@@ -87,20 +104,25 @@ class BypassManager:
                 res = await SpecializedShorteners.resolve(url)
                 if res.get("final_url") and res["final_url"] != url:
                     duration = round(time.time() - start_time, 3)
+                    final_url = res["final_url"]
+                    is_confirmed = BypassDatabase.is_confirmed_destination(final_url)
                     res.update({
                         "original_url": url,
                         "method": "Direct Shortener Resolver",
                         "duration_seconds": duration,
-                        "time_saved_seconds": 10
+                        "time_saved_seconds": 10,
+                        "verified_destination": is_confirmed
                     })
-                    await BypassDatabase.set_cached_bypass(
-                        url,
-                        res["final_url"],
-                        res.get("hops", []),
-                        res["method"],
-                        False,
-                        10
-                    )
+                    if is_confirmed:
+                        await BypassDatabase.set_cached_bypass(
+                            url,
+                            final_url,
+                            res.get("hops", []),
+                            res["method"],
+                            False,
+                            10,
+                            user_verified=False
+                        )
                     return res
             except Exception:
                 pass
@@ -120,6 +142,7 @@ class BypassManager:
 
             time_saved = max(10, (len(hops) - 1) * 5)
             method_desc = "Generic HTTP / Meta / JS Redirect Resolver"
+            is_confirmed = BypassDatabase.is_confirmed_destination(final_url)
             res = {
                 "success": True,
                 "original_url": url,
@@ -128,9 +151,11 @@ class BypassManager:
                 "hops_bypassed": max(1, len(hops) - 1),
                 "hops": hops,
                 "duration_seconds": duration,
-                "time_saved_seconds": time_saved
+                "time_saved_seconds": time_saved,
+                "verified_destination": is_confirmed
             }
-            await BypassDatabase.set_cached_bypass(url, final_url, hops, method_desc, False, time_saved)
+            if is_confirmed:
+                await BypassDatabase.set_cached_bypass(url, final_url, hops, method_desc, False, time_saved, user_verified=False)
             return res
         except Exception as e:
             return {

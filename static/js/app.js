@@ -340,7 +340,7 @@ async function pasteClipboard() {
     }
 }
 
-async function handleBypass() {
+async function handleBypass(forceLive = false) {
     const input = document.getElementById('urlInput');
     const originalInputUrl = input.value.trim();
 
@@ -369,9 +369,11 @@ async function handleBypass() {
     
     let totalSeconds = 0;
     let currentStage = 1;
-    progressText.innerText = `Solving Layer ${currentStage} ad-shortener & bypassing countdowns (0s)...`;
+    progressText.innerText = forceLive 
+        ? `Force re-bypassing live shortener (ignoring cache)...` 
+        : `Solving Layer ${currentStage} ad-shortener & checking database cache...`;
     stepList.innerHTML = `
-        <div class="step-item"><i class="fa-solid fa-bolt fa-spin"></i> Initiating automated token handshake for Layer 1...</div>
+        <div class="step-item"><i class="fa-solid fa-bolt fa-spin"></i> ${forceLive ? 'Initiating fresh live bypass handshake...' : 'Checking instant community cache & solving...'}</div>
     `;
 
     clearInterval(state.timerInterval);
@@ -394,7 +396,8 @@ async function handleBypass() {
                 `;
             }
 
-            const response = await fetch(`/api/bypass?url=${encodeURIComponent(currentUrl)}`);
+            const apiUrl = `/api/bypass?url=${encodeURIComponent(currentUrl)}${forceLive && round === 1 ? '&force=true' : ''}`;
+            const response = await fetch(apiUrl);
             if (!response.ok) {
                 throw new Error(`Server returned HTTP ${response.status}`);
             }
@@ -410,6 +413,7 @@ async function handleBypass() {
                     const finalResult = {
                         success: true,
                         partial: true,
+                        verified_destination: false,
                         captcha_blocked: data.captcha_blocked || (data.error && data.error.includes('403')),
                         original_url: originalInputUrl,
                         final_url: currentUrl,
@@ -441,6 +445,7 @@ async function handleBypass() {
                 const finalResult = {
                     success: true,
                     cached: isCached,
+                    verified_destination: Boolean(data.verified_destination),
                     original_url: originalInputUrl,
                     final_url: currentUrl,
                     hops: accumulatedHops,
@@ -499,6 +504,8 @@ function displaySingleResult(data) {
     const resultNotice = document.getElementById('resultNotice');
     const finalUrlInput = document.getElementById('finalUrlInput');
     const openLinkBtn = document.getElementById('openLinkBtn');
+    const communityVerifyCard = document.getElementById('communityVerifyCard');
+    const cacheActionsBar = document.getElementById('cacheActionsBar');
 
     document.getElementById('statTimeSaved').innerText = `${data.time_saved_seconds || 60}s`;
     document.getElementById('statHops').innerText = data.hops_bypassed || data.stages_bypassed || (data.hops ? data.hops.length : 1);
@@ -520,7 +527,10 @@ function displaySingleResult(data) {
         if (openLinkBtn) {
             openLinkBtn.innerHTML = `<i class="fa-solid fa-arrow-up-right-from-square"></i> Open Direct`;
         }
-    } else if (data.partial || data.captcha_blocked) {
+        if (communityVerifyCard) communityVerifyCard.classList.add('hidden');
+        if (cacheActionsBar) cacheActionsBar.classList.remove('hidden');
+
+    } else if (data.partial || data.captcha_blocked || !data.verified_destination) {
         if (resultBadge) {
             resultBadge.className = 'result-badge warning-badge';
             if (resultBadgeIcon) resultBadgeIcon.className = 'fa-solid fa-shield-halved';
@@ -537,6 +547,9 @@ function displaySingleResult(data) {
         if (openLinkBtn) {
             openLinkBtn.innerHTML = `<i class="fa-solid fa-arrow-up-right-from-square"></i> Open Link`;
         }
+        if (communityVerifyCard) communityVerifyCard.classList.remove('hidden');
+        if (cacheActionsBar) cacheActionsBar.classList.remove('hidden');
+
     } else {
         if (resultBadge) {
             resultBadge.className = 'result-badge success-badge';
@@ -550,6 +563,8 @@ function displaySingleResult(data) {
         if (openLinkBtn) {
             openLinkBtn.innerHTML = `<i class="fa-solid fa-arrow-up-right-from-square"></i> Open Direct`;
         }
+        if (communityVerifyCard) communityVerifyCard.classList.add('hidden');
+        if (cacheActionsBar) cacheActionsBar.classList.add('hidden');
     }
 
     // Render hops timeline
@@ -566,6 +581,65 @@ function displaySingleResult(data) {
     }
 
     resultCard.classList.remove('hidden');
+}
+
+function forceReBypass() {
+    showToast('🔄 Force live re-bypass started...');
+    handleBypass(true);
+}
+
+async function submitUserVerifiedLink() {
+    const origInput = document.getElementById('urlInput');
+    const verifiedInput = document.getElementById('verifiedDirectInput');
+    const origUrl = origInput.value.trim();
+    const verifiedUrl = verifiedInput.value.trim();
+
+    if (!origUrl || !verifiedUrl) {
+        showToast('Please paste the final direct destination link.');
+        return;
+    }
+
+    if (!verifiedUrl.startsWith('http://') && !verifiedUrl.startsWith('https://')) {
+        showToast('Please enter a valid URL starting with https://');
+        return;
+    }
+
+    const btn = document.getElementById('saveVerifiedBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+
+    try {
+        const response = await fetch('/api/cache-submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ original_url: origUrl, final_url: verifiedUrl })
+        });
+        const resData = await response.json();
+
+        if (resData.success) {
+            showToast('✅ Saved to community cache! Future users will get this link in 0s!');
+            const finalResult = {
+                success: true,
+                cached: true,
+                verified_destination: true,
+                original_url: origUrl,
+                final_url: verifiedUrl,
+                duration_seconds: 0.01,
+                time_saved_seconds: 90,
+                method: 'Community Verified Direct Link'
+            };
+            displaySingleResult(finalResult);
+            saveToHistory(origUrl, verifiedUrl, finalResult.method);
+            verifiedInput.value = '';
+        } else {
+            showToast('Failed to save to cache.');
+        }
+    } catch (err) {
+        showToast('Error saving verified link.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-check-double"></i> Save Link';
+    }
 }
 
 async function handleBatchBypass() {

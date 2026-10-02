@@ -600,6 +600,63 @@ body {
     flex-wrap: wrap;
 }
 
+/* Community Verify / Contribution Card */
+.community-verify-card {
+    margin-top: 14px;
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px dashed rgba(99, 102, 241, 0.35);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.verify-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--primary-light);
+    line-height: 1.4;
+}
+.verify-header i {
+    font-size: 1.1rem;
+    color: var(--primary);
+    flex-shrink: 0;
+}
+.verify-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.verify-form input {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+.verify-form input:focus {
+    border-color: var(--primary);
+}
+.cache-actions-bar {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+}
+.cache-actions-bar button {
+    color: var(--text-muted);
+    transition: color 0.2s ease;
+}
+.cache-actions-bar button:hover {
+    color: #ef4444;
+}
+
 /* Hops Accordion */
 .hops-details {
     margin-top: 18px;

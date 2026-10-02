@@ -148,6 +148,27 @@
                     </div>
                 </div>
 
+                <!-- Community Contribution / Verified Destination Box -->
+                <div class="community-verify-card hidden" id="communityVerifyCard">
+                    <div class="verify-header">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                        <span><b>Save Final Link to Community Database:</b> Once you finish the shortener/captcha, paste the direct destination link below to unlock it for all users in 0s.</span>
+                    </div>
+                    <div class="verify-form">
+                        <input type="url" id="verifiedDirectInput" placeholder="Paste final destination link (e.g. https://t.me/... or https://mediafire.com/...)" />
+                        <button class="btn btn-sm btn-primary" onclick="submitUserVerifiedLink()" id="saveVerifiedBtn">
+                            <i class="fa-solid fa-check-double"></i> Save Link
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Cache Controls & Re-bypass Bar -->
+                <div class="cache-actions-bar" id="cacheActionsBar">
+                    <button class="btn-text-sm" onclick="forceReBypass()" id="reBypassBtn">
+                        <i class="fa-solid fa-arrows-rotate"></i> Wrong Destination? Force Fresh Live Re-Bypass
+                    </button>
+                </div>
+
                 <!-- Hop Timeline / Details Accordion -->
                 <details class="hops-details">
                     <summary><i class="fa-solid fa-route"></i> Inspect Redirect Chain & Hops</summary>

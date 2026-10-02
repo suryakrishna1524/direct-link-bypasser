@@ -42,6 +42,11 @@ if static_path:
 
 class BypassRequest(BaseModel):
     url: str
+    force: bool = False
+
+class CacheSubmitRequest(BaseModel):
+    original_url: str
+    final_url: str
 
 class BatchBypassRequest(BaseModel):
     urls: List[str]
@@ -77,18 +82,48 @@ async def static_js():
     )
 
 @app.get("/api/bypass")
-async def bypass_get(url: str = Query(..., description="The shortlink or redirect URL to bypass")):
+async def bypass_get(
+    url: str = Query(..., description="The shortlink or redirect URL to bypass"),
+    force: bool = Query(False, description="Force fresh bypass and skip cache")
+):
     if not url:
         raise HTTPException(status_code=400, detail="Missing 'url' parameter.")
-    result = await BypassManager.bypass_url(url)
+    result = await BypassManager.bypass_url(url, force=force)
     return JSONResponse(content=result)
 
 @app.post("/api/bypass")
 async def bypass_post(req: BypassRequest):
     if not req.url:
         raise HTTPException(status_code=400, detail="Missing 'url' field.")
-    result = await BypassManager.bypass_url(req.url)
+    result = await BypassManager.bypass_url(req.url, force=req.force)
     return JSONResponse(content=result)
+
+@app.post("/api/cache-submit")
+async def cache_submit(req: CacheSubmitRequest):
+    if not req.original_url or not req.final_url:
+        raise HTTPException(status_code=400, detail="Missing original_url or final_url.")
+    from engine.db import BypassDatabase
+    success = await BypassDatabase.set_cached_bypass(
+        original_url=req.original_url,
+        final_url=req.final_url,
+        hops=[
+            {"step": 1, "url": req.original_url, "stage": "Original Shortlink"},
+            {"step": 2, "url": req.final_url, "stage": "User Verified Destination"}
+        ],
+        method="Community Verified Direct Link",
+        intermediate=False,
+        time_saved=60,
+        user_verified=True
+    )
+    return JSONResponse(content={"success": success, "message": "Direct link saved to community cache."})
+
+@app.post("/api/cache-delete")
+async def cache_delete(req: BypassRequest):
+    if not req.url:
+        raise HTTPException(status_code=400, detail="Missing url.")
+    from engine.db import BypassDatabase
+    await BypassDatabase.delete_cached_bypass(req.url)
+    return JSONResponse(content={"success": True, "message": "Cache entry cleared."})
 
 @app.post("/api/batch-bypass")
 async def batch_bypass(req: BatchBypassRequest):
