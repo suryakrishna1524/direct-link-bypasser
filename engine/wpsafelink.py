@@ -1,6 +1,7 @@
 import re
 import urllib.request
 import urllib.parse
+import urllib.error
 import base64
 import json
 import asyncio
@@ -9,8 +10,9 @@ import http.cookiejar
 from typing import Dict, Any, List
 
 KNOWN_SHORTENER_HOSTS = [
-    'shortxlinks.com', 'softurl.in', 'droplink', 'adlinkfly', 'safelink',
-    'trickscolony.com', 'ibapam.in', 'evloadercarrompool.com'
+    'shortxlinks', 'softurl', 'droplink', 'adlinkfly', 'safelink',
+    'trickscolony', 'ibapam', 'evloadercarrompool',
+    'thetechhint', 'distancedata', 'techhint'
 ]
 
 class WPSafeLinkBypasser:
@@ -20,9 +22,9 @@ class WPSafeLinkBypasser:
     server-side security cooldown (30.0s) for maximum throughput.
     """
     DEFAULT_HEADERS = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Language': 'en-US,en;q=0.9',
     }
 
     @classmethod
@@ -226,19 +228,40 @@ class WPSafeLinkBypasser:
     def _solve_single_stage_entry(cls, start_url: str) -> Dict[str, Any]:
         hops = []
         t0 = time.time()
-        resolved_url = cls._solve_single_stage_sync(start_url, hops, 1)
-        duration = round(time.time() - t0, 2)
-        is_intermediate = cls.is_intermediate_shortener(resolved_url) if resolved_url else False
+        try:
+            resolved_url = cls._solve_single_stage_sync(start_url, hops, 1)
+            duration = round(time.time() - t0, 2)
+            is_intermediate = cls.is_intermediate_shortener(resolved_url) if resolved_url else False
 
-        return {
-            "success": bool(resolved_url and resolved_url != start_url),
-            "final_url": resolved_url,
-            "intermediate": is_intermediate,
-            "hops": hops,
-            "stages_bypassed": len(hops),
-            "duration_seconds": duration,
-            "time_saved_seconds": max(45, int(duration + 45))
-        }
+            return {
+                "success": bool(resolved_url and resolved_url != start_url),
+                "final_url": resolved_url,
+                "intermediate": is_intermediate,
+                "hops": hops,
+                "stages_bypassed": len(hops),
+                "duration_seconds": duration,
+                "time_saved_seconds": max(45, int(duration + 45))
+            }
+        except urllib.error.HTTPError as e:
+            duration = round(time.time() - t0, 2)
+            is_captcha = e.code in (403, 429, 503)
+            return {
+                "success": False,
+                "final_url": start_url,
+                "error": "This shortener is protected by LiteSpeed/Cloudflare bot verification (HTTP 403)." if e.code == 403 else f"HTTP Error {e.code}: {e.reason}",
+                "captcha_blocked": is_captcha,
+                "hops": hops,
+                "duration_seconds": duration
+            }
+        except Exception as e:
+            duration = round(time.time() - t0, 2)
+            return {
+                "success": False,
+                "final_url": start_url,
+                "error": str(e),
+                "hops": hops,
+                "duration_seconds": duration
+            }
 
     @classmethod
     async def resolve(cls, start_url: str) -> Dict[str, Any]:

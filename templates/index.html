@@ -121,8 +121,8 @@
             <!-- Single Result Card -->
             <div class="result-card hidden" id="resultCard">
                 <div class="result-header">
-                    <div class="result-badge success-badge">
-                        <i class="fa-solid fa-circle-check"></i> Direct Link Ready
+                    <div class="result-badge success-badge" id="resultBadge">
+                        <i class="fa-solid fa-circle-check" id="resultBadgeIcon"></i> <span id="resultBadgeText">Direct Link Ready</span>
                     </div>
                     <div class="result-stats">
                         <span class="stat-pill"><i class="fa-solid fa-clock-rotate-left"></i> <b id="statTimeSaved">50s</b> Saved</span>
@@ -130,6 +130,8 @@
                         <span class="stat-pill"><i class="fa-solid fa-gauge-high"></i> <b id="statDuration">0.4s</b> Latency</span>
                     </div>
                 </div>
+
+                <div id="resultNotice" class="result-notice hidden"></div>
 
                 <div class="final-url-box">
                     <div class="url-display">

@@ -405,7 +405,25 @@ async function handleBypass() {
                     showToast(data.error || 'Could not bypass this link.');
                     return;
                 } else {
-                    break;
+                    // Previous layer succeeded, but subsequent layer is blocked by captcha / verification
+                    clearInterval(state.timerInterval);
+                    const finalResult = {
+                        success: true,
+                        partial: true,
+                        captcha_blocked: data.captcha_blocked || (data.error && data.error.includes('403')),
+                        original_url: originalInputUrl,
+                        final_url: currentUrl,
+                        hops: accumulatedHops,
+                        stages_bypassed: stagesBypassed,
+                        duration_seconds: totalSeconds,
+                        time_saved_seconds: totalTimeSaved,
+                        method: `Progressive Multi-Tier Solver (Layer ${round - 1} Bypassed)`
+                    };
+                    displaySingleResult(finalResult);
+                    saveToHistory(originalInputUrl, currentUrl, finalResult.method);
+                    showToast(`Layer ${round - 1} bypassed!`);
+                    triggerCompletionAlert(currentUrl);
+                    return;
                 }
             }
 
@@ -455,6 +473,10 @@ async function handleBypass() {
 
 function displaySingleResult(data) {
     const resultCard = document.getElementById('resultCard');
+    const resultBadge = document.getElementById('resultBadge');
+    const resultBadgeIcon = document.getElementById('resultBadgeIcon');
+    const resultBadgeText = document.getElementById('resultBadgeText');
+    const resultNotice = document.getElementById('resultNotice');
     const finalUrlInput = document.getElementById('finalUrlInput');
     const openLinkBtn = document.getElementById('openLinkBtn');
 
@@ -464,6 +486,38 @@ function displaySingleResult(data) {
 
     finalUrlInput.value = data.final_url;
     openLinkBtn.href = data.final_url;
+
+    if (data.partial || data.captcha_blocked) {
+        if (resultBadge) {
+            resultBadge.className = 'result-badge warning-badge';
+            if (resultBadgeIcon) resultBadgeIcon.className = 'fa-solid fa-shield-halved';
+            if (resultBadgeText) resultBadgeText.innerText = '⚡ Layer 1 Bypassed';
+        }
+        if (resultNotice) {
+            let domain = 'destination';
+            try {
+                domain = new URL(data.final_url).hostname;
+            } catch (e) {}
+            resultNotice.innerHTML = `<i class="fa-solid fa-circle-info" style="font-size:1.3rem;flex-shrink:0;"></i> <span><b>Layer 1 Bypassed!</b> The destination host (<b>${domain}</b>) has server-side Cloudflare / Bot Verification enabled. Click <b>"Open Link"</b> below to finish.</span>`;
+            resultNotice.classList.remove('hidden');
+        }
+        if (openLinkBtn) {
+            openLinkBtn.innerHTML = `<i class="fa-solid fa-arrow-up-right-from-square"></i> Open Link`;
+        }
+    } else {
+        if (resultBadge) {
+            resultBadge.className = 'result-badge success-badge';
+            if (resultBadgeIcon) resultBadgeIcon.className = 'fa-solid fa-circle-check';
+            if (resultBadgeText) resultBadgeText.innerText = 'Direct Link Ready';
+        }
+        if (resultNotice) {
+            resultNotice.classList.add('hidden');
+            resultNotice.innerHTML = '';
+        }
+        if (openLinkBtn) {
+            openLinkBtn.innerHTML = `<i class="fa-solid fa-arrow-up-right-from-square"></i> Open Direct`;
+        }
+    }
 
     // Render hops timeline
     const timeline = document.getElementById('hopsTimeline');

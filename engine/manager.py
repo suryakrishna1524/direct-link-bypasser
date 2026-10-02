@@ -37,11 +37,13 @@ class BypassManager:
         if WPSafeLinkBypasser.matches(url):
             try:
                 res = await WPSafeLinkBypasser.resolve(url)
-                if res.get("final_url") and res["final_url"] != url:
+                res.setdefault("original_url", url)
+                if res.get("success"):
                     res.update({
-                        "original_url": url,
                         "method": "WPSafeLink Multi-Tier Recursive Solver"
                     })
+                    return res
+                elif res.get("error"):
                     return res
             except Exception as e:
                 return {
