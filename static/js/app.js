@@ -703,6 +703,90 @@ async function submitUserVerifiedLink() {
     }
 }
 
+async function solveSingleUrlProgressively(rawUrl) {
+    const cleanUrl = rawUrl.trim();
+    if (!cleanUrl) return { success: false, error: 'Empty URL' };
+
+    // 1. Check local cache
+    const localHit = getLocalCachedBypass(cleanUrl);
+    if (localHit && localHit.final_url) {
+        return {
+            success: true,
+            cached: true,
+            original_url: cleanUrl,
+            final_url: localHit.final_url,
+            duration_seconds: 0.00,
+            method: 'Instant Browser Cache (0.0s)',
+            verified_destination: Boolean(localHit.verified_destination),
+            partial: Boolean(localHit.partial)
+        };
+    }
+
+    let currentUrl = cleanUrl;
+    let accumulatedHops = [];
+    let totalTimeSaved = 0;
+    let stagesBypassed = 0;
+    let t0 = Date.now();
+
+    for (let round = 1; round <= 3; round++) {
+        try {
+            const resp = await fetch(`/api/bypass?url=${encodeURIComponent(currentUrl)}`);
+            if (!resp.ok) {
+                if (round === 1) return { success: false, original_url: cleanUrl, error: `HTTP ${resp.status}` };
+                break;
+            }
+            const data = await resp.json();
+            if (!data.success || !data.final_url || data.final_url === currentUrl) {
+                if (round === 1) return { success: false, original_url: cleanUrl, error: data.error || 'Failed to resolve' };
+                break;
+            }
+
+            let isCached = Boolean(data.cached);
+            if (data.hops && Array.isArray(data.hops)) accumulatedHops = accumulatedHops.concat(data.hops);
+            totalTimeSaved += (data.time_saved_seconds || 45);
+            stagesBypassed += (data.stages_bypassed || 1);
+            currentUrl = data.final_url;
+
+            if (!data.intermediate || isCached) {
+                const res = {
+                    success: true,
+                    cached: isCached,
+                    original_url: cleanUrl,
+                    final_url: currentUrl,
+                    hops: accumulatedHops,
+                    stages_bypassed: stagesBypassed,
+                    duration_seconds: (Date.now() - t0) / 1000,
+                    time_saved_seconds: totalTimeSaved,
+                    method: data.method || 'Automated Solver',
+                    verified_destination: Boolean(data.verified_destination)
+                };
+                setLocalCachedBypass(cleanUrl, res);
+                saveToHistory(cleanUrl, currentUrl, res.method);
+                return res;
+            }
+        } catch (e) {
+            if (round === 1) return { success: false, original_url: cleanUrl, error: e.message || 'Network error' };
+            break;
+        }
+    }
+
+    const partialRes = {
+        success: true,
+        partial: true,
+        original_url: cleanUrl,
+        final_url: currentUrl,
+        hops: accumulatedHops,
+        stages_bypassed: stagesBypassed,
+        duration_seconds: (Date.now() - t0) / 1000,
+        time_saved_seconds: totalTimeSaved,
+        method: 'Multi-Tier Solver (Partial)',
+        verified_destination: false
+    };
+    setLocalCachedBypass(cleanUrl, partialRes);
+    saveToHistory(cleanUrl, currentUrl, partialRes.method);
+    return partialRes;
+}
+
 async function handleBatchBypass() {
     const textarea = document.getElementById('batchInput');
     const rawLines = textarea.value.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -717,48 +801,99 @@ async function handleBatchBypass() {
     const spinner = document.getElementById('batchSpinner');
     const batchResultCard = document.getElementById('batchResultCard');
     const tableBody = document.getElementById('batchTableBody');
+    const btnText = btn.querySelector('.btn-text');
 
     btn.disabled = true;
     spinner.classList.remove('hidden');
-    tableBody.innerHTML = '';
+    batchResultCard.classList.remove('hidden');
+    state.batchResults = new Array(rawLines.length);
 
-    try {
-        const response = await fetch('/api/batch-bypass', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ urls: rawLines })
-        });
-        const data = await response.json();
-        state.batchResults = data.results || [];
+    // Initial live table rows
+    tableBody.innerHTML = rawLines.map((url, i) => `
+        <tr id="batch-row-${i}">
+            <td>${i + 1}</td>
+            <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${url}">${url}</td>
+            <td id="batch-dest-${i}" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);">
+                <i class="fa-solid fa-spinner fa-spin"></i> Processing...
+            </td>
+            <td id="batch-status-${i}">
+                <span class="badge badge-processing">In Progress</span>
+            </td>
+            <td id="batch-action-${i}">-</td>
+        </tr>
+    `).join('');
 
-        tableBody.innerHTML = state.batchResults.map((r, i) => `
-            <tr>
-                <td>${i + 1}</td>
-                <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.original_url}</td>
-                <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--success);font-weight:600;">
-                    ${r.final_url || r.error || 'Failed'}
-                </td>
-                <td>
-                    <span class="badge ${r.success ? 'badge-beta' : 'badge-error'}">${r.success ? 'Resolved' : 'Error'}</span>
-                </td>
-                <td>
-                    ${r.success && r.final_url ? `<a href="${r.final_url}" target="_blank" class="btn btn-outline"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>` : '-'}
-                </td>
-            </tr>
-        `).join('');
+    let completedCount = 0;
+    const totalCount = rawLines.length;
 
-        batchResultCard.classList.remove('hidden');
-        showToast(`Processed ${state.batchResults.length} links!`);
+    // Process with controlled concurrency (2 at a time)
+    const concurrency = 2;
+    let activeIndex = 0;
 
-        // Trigger Audio Chime + Vibration + Notification
-        triggerCompletionAlert('Batch processing finished');
+    async function worker() {
+        while (activeIndex < rawLines.length) {
+            const index = activeIndex++;
+            const url = rawLines[index];
+            const result = await solveSingleUrlProgressively(url);
+            state.batchResults[index] = result;
+            completedCount++;
 
-    } catch (err) {
-        showToast('Batch processing failed.');
-    } finally {
-        btn.disabled = false;
-        spinner.classList.add('hidden');
+            // Update row live
+            const destEl = document.getElementById(`batch-dest-${index}`);
+            const statusEl = document.getElementById(`batch-status-${index}`);
+            const actionEl = document.getElementById(`batch-action-${index}`);
+
+            if (result.success && result.final_url) {
+                if (destEl) {
+                    destEl.innerHTML = `<span style="color:var(--success);font-weight:600;">${result.final_url}</span>`;
+                    destEl.title = result.final_url;
+                }
+                if (statusEl) {
+                    if (result.cached) {
+                        statusEl.innerHTML = '<span class="badge badge-cached"><i class="fa-solid fa-bolt"></i> Cached 0s</span>';
+                    } else if (result.partial) {
+                        statusEl.innerHTML = '<span class="badge badge-warning">Layer 1 Done</span>';
+                    } else {
+                        statusEl.innerHTML = '<span class="badge badge-beta">Resolved</span>';
+                    }
+                }
+                if (actionEl) {
+                    actionEl.innerHTML = `
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn btn-outline" style="padding:4px 8px;font-size:0.75rem;" onclick="copyText('${result.final_url}')" title="Copy">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                            <a href="${result.final_url}" target="_blank" class="btn btn-outline" style="padding:4px 8px;font-size:0.75rem;" title="Open">
+                                <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                            </a>
+                        </div>
+                    `;
+                }
+            } else {
+                if (destEl) destEl.innerHTML = `<span style="color:var(--danger);">${result.error || 'Failed'}</span>`;
+                if (statusEl) statusEl.innerHTML = '<span class="badge badge-error">Failed</span>';
+                if (actionEl) actionEl.innerHTML = '-';
+            }
+
+            if (btnText) {
+                btnText.innerHTML = `<i class="fa-solid fa-layer-group"></i> Processing ${completedCount}/${totalCount}...`;
+            }
+        }
     }
+
+    const workers = [];
+    for (let i = 0; i < Math.min(concurrency, rawLines.length); i++) {
+        workers.push(worker());
+    }
+    await Promise.all(workers);
+
+    btn.disabled = false;
+    spinner.classList.add('hidden');
+    if (btnText) btnText.innerHTML = '<i class="fa-solid fa-layer-group"></i> Process All Links';
+
+    const successfulCount = state.batchResults.filter(r => r && r.success).length;
+    showToast(`✅ Finished! ${successfulCount} of ${totalCount} links resolved.`);
+    triggerCompletionAlert('Batch finished');
 }
 
 function copyFinalUrl() {
