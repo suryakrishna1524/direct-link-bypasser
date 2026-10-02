@@ -427,6 +427,7 @@ async function handleBypass() {
                 }
             }
 
+            let isCached = Boolean(data.cached);
             if (data.hops && Array.isArray(data.hops)) {
                 accumulatedHops = accumulatedHops.concat(data.hops);
             }
@@ -434,9 +435,28 @@ async function handleBypass() {
             stagesBypassed += (data.stages_bypassed || 1);
             currentUrl = data.final_url;
 
-            // If not intermediate, we have reached the final destination!
-            if (!data.intermediate) {
-                break;
+            // If not intermediate or if served from cache, stop loop
+            if (!data.intermediate || isCached) {
+                clearInterval(state.timerInterval);
+                const finalResult = {
+                    success: true,
+                    cached: isCached,
+                    original_url: originalInputUrl,
+                    final_url: currentUrl,
+                    hops: accumulatedHops,
+                    stages_bypassed: stagesBypassed,
+                    duration_seconds: isCached ? (data.duration_seconds || 0.01) : totalSeconds,
+                    time_saved_seconds: totalTimeSaved,
+                    method: data.method || 'Progressive Multi-Tier AdLinkFly & WPSafeLink Direct Solver'
+                };
+
+                displaySingleResult(finalResult);
+                saveToHistory(originalInputUrl, currentUrl, finalResult.method);
+                showToast(isCached ? '⚡ Instant Cache Hit (0s)!' : 'Direct destination link unlocked!');
+
+                // Trigger Audio Chime + Haptic Vibration + Desktop/Mobile Alert
+                triggerCompletionAlert(currentUrl);
+                return;
             }
         }
 
@@ -487,7 +507,20 @@ function displaySingleResult(data) {
     finalUrlInput.value = data.final_url;
     openLinkBtn.href = data.final_url;
 
-    if (data.partial || data.captcha_blocked) {
+    if (data.cached) {
+        if (resultBadge) {
+            resultBadge.className = 'result-badge cache-badge';
+            if (resultBadgeIcon) resultBadgeIcon.className = 'fa-solid fa-bolt-lightning';
+            if (resultBadgeText) resultBadgeText.innerText = '⚡ Instant Cache Hit (0s)';
+        }
+        if (resultNotice) {
+            resultNotice.innerHTML = `<i class="fa-solid fa-database" style="font-size:1.3rem;flex-shrink:0;"></i> <span><b>Instant Community Cache!</b> This link was previously solved and served directly in <b>${data.duration_seconds || 0.01}s</b>.</span>`;
+            resultNotice.classList.remove('hidden');
+        }
+        if (openLinkBtn) {
+            openLinkBtn.innerHTML = `<i class="fa-solid fa-arrow-up-right-from-square"></i> Open Direct`;
+        }
+    } else if (data.partial || data.captcha_blocked) {
         if (resultBadge) {
             resultBadge.className = 'result-badge warning-badge';
             if (resultBadgeIcon) resultBadgeIcon.className = 'fa-solid fa-shield-halved';

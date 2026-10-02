@@ -102,6 +102,12 @@ async def batch_bypass(req: BatchBypassRequest):
 async def health_check():
     return {"status": "ok", "service": "Direct Link Bypasser"}
 
+@app.get("/api/stats")
+async def db_stats():
+    from engine.db import BypassDatabase
+    stats = await BypassDatabase.get_stats()
+    return JSONResponse(content=stats)
+
 # Catch-all route to support prefix shortcuts (e.g. /https://shortxlinks.com/... or /shortxlinks.com/...)
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def catch_all_page(full_path: str):

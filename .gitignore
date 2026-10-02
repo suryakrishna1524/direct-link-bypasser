@@ -26,3 +26,8 @@ link-bypasser-backup-*/
 
 # Vercel
 .vercel
+
+# Database Cache
+*.db
+*.sqlite
+*.sqlite3
