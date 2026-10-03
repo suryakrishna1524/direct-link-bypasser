@@ -7,13 +7,16 @@ import json
 import asyncio
 import time
 import http.cookiejar
+import html as html_lib
 from typing import Dict, Any, List, Optional
+from .db import BypassDatabase
 
 # Non-exhaustive keywords for fast matching, but engine works dynamically on any domain via HTML signature
 KNOWN_SHORTENER_HINTS = [
     'short', 'link', 'safe', 'url', 'drop', 'fly', 'earn', 'shrink',
     'tiny', 'bitly', 'droplink', 'adlinkfly', 'safelink', 'wp',
-    'thetechhint', 'distancedata', 'trickscolony', 'ibapam'
+    'thetechhint', 'distancedata', 'trickscolony', 'ibapam', 'uptestbook',
+    'softurl', 'shortxlinks'
 ]
 
 # Known final destination domains that should never be marked intermediate
@@ -21,7 +24,9 @@ FINAL_DESTINATION_DOMAINS = [
     't.me', 'telegram.me', 'telegram.dog', 'drive.google.com', 'mega.nz',
     'mega.co.nz', 'mediafire.com', 'github.com', 'youtube.com', 'youtu.be',
     'dropbox.com', '1fichier.com', 'pixeldrain.com', 'send.cm', 'racaty.net',
-    'krakenfiles.com', 'gofile.io', 'terabox.com', 'workupload.com'
+    'krakenfiles.com', 'gofile.io', 'terabox.com', 'teraboxapp.com', '1024tera.com',
+    'workupload.com', 'zippyshare.com', 'wetransfer.com', 'solidfiles.com',
+    'bayfiles.com', 'anonfiles.com', 'streamtape.com', 'doodstream.com', 'dood.to'
 ]
 
 class WPSafeLinkBypasser:
@@ -48,11 +53,11 @@ class WPSafeLinkBypasser:
         if any(d in domain for d in FINAL_DESTINATION_DOMAINS):
             return False
             
-        # Match if domain has shortener hints or path looks like a shortener slug (1-15 chars)
+        # Match if domain has shortener hints or path looks like a shortener slug (1-20 chars)
         if any(k in domain for k in KNOWN_SHORTENER_HINTS):
             return True
             
-        if path and len(path) <= 20 and not ('.' in path and not path.endswith('.html')):
+        if path and len(path) <= 25 and not ('.' in path and not path.endswith('.html')):
             return True
             
         return False
@@ -79,9 +84,7 @@ class WPSafeLinkBypasser:
         return False
 
     @classmethod
-    def _solve_single_stage_sync(cls, shortlink: str, hops: List[Dict[str, Any]], round_num: int) -> str:
-        cj = http.cookiejar.CookieJar()
-        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    def _solve_single_round(cls, opener: urllib.request.OpenerDirector, cj: http.cookiejar.CookieJar, shortlink: str, hops: List[Dict[str, Any]], round_num: int) -> str:
         headers = cls.DEFAULT_HEADERS
         t_start = time.time()
 
@@ -118,7 +121,7 @@ class WPSafeLinkBypasser:
         ref = curr_url
         final_token_url = None
 
-        # Universal Dynamic Multi-Layer State Machine (Traverses any number of WordPress landing/article layers)
+        # Universal Dynamic Multi-Layer State Machine (Traverses WordPress landing/article layers)
         for layer_hop in range(1, 15):
             if post_data is not None:
                 data_bytes = urllib.parse.urlencode(post_data).encode('utf-8')
@@ -202,6 +205,14 @@ class WPSafeLinkBypasser:
                 break
             time.sleep(2.0)
 
+        # Check if redemption returned an auto-submitting landing form
+        form_landing_after = re.search(r'<form[^>]*id=["\']landing["\'][^>]*action=["\']([^"\']*)["\'][^>]*>(.*?)</form>', html_red, re.DOTALL)
+        if form_landing_after:
+            act = form_landing_after.group(1) or url_red
+            if not act.startswith('http'):
+                act = urllib.parse.urljoin(url_red, act)
+            return act
+
         # Step 5: /links/go AJAX Submission
         form_go = re.search(r'<form[^>]*action=["\']([^"\']*)["\'][^>]*>(.*?)</form>', html_red, re.DOTALL)
         if not form_go:
@@ -209,23 +220,45 @@ class WPSafeLinkBypasser:
 
         go_action = form_go.group(1)
         go_body = form_go.group(2)
-        go_inputs = dict(re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']', go_body))
+        raw_inputs = re.findall(r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']', go_body)
 
         if not go_action.startswith('http'):
             go_action = urllib.parse.urljoin(url_red, go_action)
 
+        # Unescape and unquote input values to prevent CakePHP double-encoding failures
+        inputs_clean = {}
+        for name, val in raw_inputs:
+            inputs_clean[name] = urllib.parse.unquote(html_lib.unescape(val))
+
+        parsed_origin = urllib.parse.urlparse(url_red)
+        origin_header = f"{parsed_origin.scheme}://{parsed_origin.netloc}"
+
         headers_ajax = dict(headers)
         headers_ajax.update({
             'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Referer': url_red
+            'Referer': url_red,
+            'Origin': origin_header
         })
+        if inputs_clean.get('_csrfToken'):
+            headers_ajax['X-CSRF-Token'] = inputs_clean['_csrfToken']
 
-        go_data = urllib.parse.urlencode(go_inputs).encode('utf-8')
+        go_data = urllib.parse.urlencode(inputs_clean).encode('utf-8')
         req_ajax = urllib.request.Request(go_action, data=go_data, headers=headers_ajax)
         
         with opener.open(req_ajax) as resp_ajax:
             res_text = resp_ajax.read().decode('utf-8', errors='ignore')
+            
+            # Check if response returned another landing page
+            if '<form id="landing"' in res_text or 'safelink_redirect' in res_text or 'newwpsafelink' in res_text:
+                landing_m = re.search(r'<form[^>]*action=["\']([^"\']*)["\'][^>]*>(.*?)</form>', res_text, re.DOTALL)
+                if landing_m:
+                    act = landing_m.group(1) or url_red
+                    if not act.startswith('http'):
+                        act = urllib.parse.urljoin(url_red, act)
+                    return act
+
             try:
                 res_json = json.loads(res_text)
                 return res_json.get('url', url_red)
@@ -233,17 +266,32 @@ class WPSafeLinkBypasser:
                 return url_red
 
     @classmethod
-    def _solve_single_stage_entry(cls, start_url: str) -> Dict[str, Any]:
+    def _solve_recursive_sync(cls, start_url: str) -> Dict[str, Any]:
+        cj = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
         hops = []
         t0 = time.time()
+        current_url = start_url
+
         try:
-            resolved_url = cls._solve_single_stage_sync(start_url, hops, 1)
+            for round_num in range(1, 6):
+                next_url = cls._solve_single_round(opener, cj, current_url, hops, round_num)
+                
+                if not next_url or next_url == current_url:
+                    break
+                
+                current_url = next_url
+                
+                # Check if final destination has been reached
+                if not cls.is_intermediate_shortener(current_url) or any(d in current_url.lower() for d in FINAL_DESTINATION_DOMAINS):
+                    break
+
             duration = round(time.time() - t0, 2)
-            is_intermediate = cls.is_intermediate_shortener(resolved_url) if resolved_url else False
+            is_intermediate = cls.is_intermediate_shortener(current_url) if current_url else False
 
             return {
-                "success": bool(resolved_url and resolved_url != start_url),
-                "final_url": resolved_url,
+                "success": bool(current_url and current_url != start_url),
+                "final_url": current_url,
                 "intermediate": is_intermediate,
                 "hops": hops,
                 "stages_bypassed": len(hops),
@@ -254,8 +302,9 @@ class WPSafeLinkBypasser:
             duration = round(time.time() - t0, 2)
             is_captcha = e.code in (403, 429, 503)
             return {
-                "success": False,
-                "final_url": start_url,
+                "success": bool(current_url and current_url != start_url),
+                "final_url": current_url if (current_url and current_url != start_url) else start_url,
+                "intermediate": True,
                 "error": "This shortener is protected by LiteSpeed/Cloudflare bot verification (HTTP 403)." if e.code == 403 else f"HTTP Error {e.code}: {e.reason}",
                 "captcha_blocked": is_captcha,
                 "hops": hops,
@@ -264,8 +313,9 @@ class WPSafeLinkBypasser:
         except Exception as e:
             duration = round(time.time() - t0, 2)
             return {
-                "success": False,
-                "final_url": start_url,
+                "success": bool(current_url and current_url != start_url),
+                "final_url": current_url if (current_url and current_url != start_url) else start_url,
+                "intermediate": True,
                 "error": str(e),
                 "hops": hops,
                 "duration_seconds": duration
@@ -273,4 +323,4 @@ class WPSafeLinkBypasser:
 
     @classmethod
     async def resolve(cls, start_url: str) -> Dict[str, Any]:
-        return await asyncio.to_thread(cls._solve_single_stage_entry, start_url)
+        return await asyncio.to_thread(cls._solve_recursive_sync, start_url)
